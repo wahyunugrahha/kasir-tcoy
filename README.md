@@ -1,6 +1,8 @@
-# Project Nganggur
+# Kasir Tcoy
 
-Project Nganggur adalah aplikasi Point of Sale berbasis monorepo yang terdiri dari backend API Laravel dan frontend Vue untuk operasional kasir, manajemen produk, settlement shift, dan laporan penjualan.
+Bahasa: Indonesia | [English](README.en.md)
+
+Kasir Tcoy adalah aplikasi Point of Sale berbasis monorepo yang terdiri dari backend API Laravel dan frontend Vue untuk operasional kasir, manajemen produk, settlement shift, dan laporan penjualan.
 
 ## Ringkasan
 
@@ -29,7 +31,7 @@ Fitur utama yang sudah terlihat di codebase:
 - PHP 8.3+
 - Laravel 13
 - Laravel Sanctum
-- SQLite default, dapat disesuaikan ke MySQL/PostgreSQL melalui `.env`
+- PostgreSQL
 - PHPUnit 12
 - Vite untuk asset backend
 
@@ -161,7 +163,7 @@ Seeder juga menambahkan:
 - Composer.
 - Node.js 20.19+ atau 22.12+.
 - npm.
-- SQLite untuk setup tercepat, atau database lain jika `.env` diubah.
+- PostgreSQL.
 
 ### 1. Setup backend
 
@@ -197,10 +199,15 @@ composer run setup
 
 Jika memakai `composer run setup`, tetap jalankan `php artisan db:seed` bila Anda ingin data demo terisi.
 
-Jika memakai SQLite default, buat file database kosong terlebih dahulu:
+Konfigurasi database PostgreSQL di file `.env`:
 
-```bash
-type nul > database\database.sqlite
+```env
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=projectnganggur
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
 ```
 
 Lalu jalankan migrasi dan seed:
@@ -302,10 +309,15 @@ Beberapa area yang tampak siap dikembangkan lebih lanjut:
 
 ## Catatan
 
-- Backend menggunakan SQLite pada `.env.example` bawaan, jadi setup lokal paling cepat memakai file `database/database.sqlite`.
+- Environment proyek ini digunakan dengan PostgreSQL. Sesuaikan kredensial database di `.env` sebelum menjalankan migrasi.
 - Frontend dan backend berjalan sebagai aplikasi terpisah, sehingga deployment juga bisa dipisah.
 - Beberapa route frontend dibatasi role admin melalui metadata router.
 
 ## Lisensi
 
-Belum ada lisensi spesifik yang didefinisikan pada root repository ini. Tambahkan file lisensi jika repository akan dipublikasikan secara terbuka.
+Project ini menggunakan lisensi MIT. Lihat file [LICENSE](LICENSE).
+
+## Versi Bahasa Lain
+
+- Bahasa Indonesia: file ini.
+- English: [README.en.md](README.en.md)
