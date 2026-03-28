@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import api from '../services/api'
 
 const openShift = ref(null)
+const openShiftDetail = ref(null)
 const shifts = ref([])
 const loading = ref(false)
 const submitting = ref(false)
@@ -14,18 +15,65 @@ const openForm = ref({ user_id: 2, opening_cash: '' })
 
 // Close shift form
 const closeForm = ref({ closing_cash_physical: '', notes: '' })
+const movementForm = ref({ type: 'cash_drop', amount: '', reason: '', notes: '' })
+
+async function loadOpenShiftDetail() {
+  if (!openShift.value?.id) {
+    openShiftDetail.value = null
+    return
+  }
+
+  try {
+    const res = await api.get(`/v1/shifts/${openShift.value.id}`)
+    openShiftDetail.value = res.data
+  } catch {
+    openShiftDetail.value = null
+  }
+}
 
 async function loadShifts() {
   loading.value = true
+  error.value = ''
   try {
     const res = await api.get('/v1/shifts')
     shifts.value = res.data.data ?? []
     openShift.value = shifts.value.find((s) => s.status === 'open') ?? null
+    await loadOpenShiftDetail()
   } catch {
     error.value = 'Gagal memuat data shift.'
   } finally {
     loading.value = false
   }
+}
+
+async function addCashMovement() {
+  if (!openShift.value) return
+
+  error.value = ''
+  successMsg.value = ''
+  submitting.value = true
+  try {
+    await api.post(`/v1/shifts/${openShift.value.id}/cash-movements`, {
+      type: movementForm.value.type,
+      amount: Number(movementForm.value.amount),
+      reason: String(movementForm.value.reason || '').trim(),
+      notes: String(movementForm.value.notes || '').trim() || null,
+    })
+
+    movementForm.value = { type: 'cash_drop', amount: '', reason: '', notes: '' }
+    successMsg.value = 'Cash movement berhasil ditambahkan.'
+    await loadShifts()
+  } catch (e) {
+    error.value = e.response?.data?.message ?? 'Gagal menambah cash movement.'
+  } finally {
+    submitting.value = false
+  }
+}
+
+function totalMovement(type) {
+  return (openShiftDetail.value?.cash_movements ?? [])
+    .filter((m) => m.type === type)
+    .reduce((sum, m) => sum + Number(m.amount || 0), 0)
 }
 
 async function startShift() {
@@ -147,6 +195,65 @@ onMounted(loadShifts)
         >
           {{ submitting ? 'Menyimpan...' : '⏹ Tutup Shift' }}
         </button>
+      </div>
+
+      <div class="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="mb-3 text-sm font-semibold text-slate-700">Cash Movement (Cash Drop / Pay Out)</h3>
+        <div class="grid gap-3 md:grid-cols-2">
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-600">Tipe</span>
+            <select v-model="movementForm.type" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+              <option value="cash_drop">Cash Drop</option>
+              <option value="pay_out">Pay Out</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-600">Nominal</span>
+            <input v-model.number="movementForm.amount" type="number" min="1" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </label>
+          <label class="block md:col-span-2">
+            <span class="mb-1 block text-xs text-slate-600">Alasan</span>
+            <input v-model="movementForm.reason" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Contoh: setor kas berlebih" />
+          </label>
+          <label class="block md:col-span-2">
+            <span class="mb-1 block text-xs text-slate-600">Catatan</span>
+            <input v-model="movementForm.notes" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Opsional" />
+          </label>
+        </div>
+
+        <button
+          :disabled="submitting || !movementForm.amount || !movementForm.reason"
+          class="mt-3 w-full rounded-lg border border-indigo-300 bg-indigo-50 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+          @click="addCashMovement"
+        >
+          {{ submitting ? 'Menyimpan...' : '+ Tambah Cash Movement' }}
+        </button>
+
+        <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-700">
+          <p class="rounded bg-white px-3 py-2">Total Cash Drop: <span class="font-semibold">{{ formatCurrency(totalMovement('cash_drop')) }}</span></p>
+          <p class="rounded bg-white px-3 py-2">Total Pay Out: <span class="font-semibold">{{ formatCurrency(totalMovement('pay_out')) }}</span></p>
+        </div>
+
+        <div v-if="(openShiftDetail?.cash_movements ?? []).length > 0" class="mt-3 rounded border border-slate-200 bg-white">
+          <table class="w-full text-xs">
+            <thead class="bg-slate-50 text-left uppercase tracking-wide text-slate-500">
+              <tr>
+                <th class="px-3 py-2">Waktu</th>
+                <th class="px-3 py-2">Tipe</th>
+                <th class="px-3 py-2">Alasan</th>
+                <th class="px-3 py-2 text-right">Nominal</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="movement in openShiftDetail.cash_movements" :key="movement.id">
+                <td class="px-3 py-2">{{ formatDate(movement.created_at) }}</td>
+                <td class="px-3 py-2">{{ movement.type }}</td>
+                <td class="px-3 py-2">{{ movement.reason }}</td>
+                <td class="px-3 py-2 text-right">{{ formatCurrency(movement.amount) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 

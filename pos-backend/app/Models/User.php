@@ -12,12 +12,13 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'role'])]
+#[Fillable(['name', 'email', 'password', 'manager_pin', 'role'])]
 #[Hidden(['password', 'remember_token'])]
 /**
  * @property int $id
  * @property string $name
  * @property string $email
+ * @property string|null $manager_pin
  * @property string $role
  * @property \Illuminate\Support\Carbon|null $email_verified_at
  * @property \Illuminate\Support\Carbon $created_at
@@ -38,6 +39,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'manager_pin' => 'hashed',
         ];
     }
 
@@ -54,5 +56,10 @@ class User extends Authenticatable
     public function auditLogs(): HasMany
     {
         return $this->hasMany(AuditLog::class);
+    }
+
+    public function processedRefunds(): HasMany
+    {
+        return $this->hasMany(TransactionRefund::class, 'processed_by');
     }
 }

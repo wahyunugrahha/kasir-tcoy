@@ -25,7 +25,8 @@ class ReportController extends Controller
         $query = Transaction::query()->where('is_voided', false);
 
         if ($request->filled('month')) {
-            $query->whereRaw("TO_CHAR(created_at, 'YYYY-MM') = ?", [$request->month]);
+            [$year, $month] = array_map('intval', explode('-', (string) $request->string('month')));
+            $query->whereYear('created_at', $year)->whereMonth('created_at', $month);
         } elseif ($request->filled('start_date') || $request->filled('end_date')) {
             if ($request->filled('start_date')) {
                 $query->whereDate('created_at', '>=', $request->start_date);
@@ -35,7 +36,7 @@ class ReportController extends Controller
             }
         } else {
             // Default: current month
-            $query->whereRaw("TO_CHAR(created_at, 'YYYY-MM') = TO_CHAR(NOW(), 'YYYY-MM')");
+            $query->whereYear('created_at', now()->year)->whereMonth('created_at', now()->month);
         }
 
         $rows = $query
@@ -62,7 +63,8 @@ class ReportController extends Controller
         $limit = $request->integer('limit', 10);
 
         $query = TransactionDetail::query()
-            ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id');
+            ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
+            ->where('transactions.is_voided', false);
 
         if ($request->filled('start_date')) {
             $query->whereDate('transactions.created_at', '>=', $request->start_date);
@@ -101,16 +103,31 @@ class ReportController extends Controller
             $q->whereDate('created_at', $today);
         })->sum('quantity');
 
-        $monthRevenue = Transaction::where('is_voided', false)->whereRaw("TO_CHAR(created_at,'YYYY-MM') = TO_CHAR(NOW(),'YYYY-MM')")->sum('grand_total');
+        $dailyCogs = TransactionDetail::whereHas('transaction', function ($q) use ($today) {
+            $q->where('is_voided', false);
+            $q->whereDate('created_at', $today);
+        })->selectRaw('COALESCE(SUM(cogs_snapshot * quantity), 0) as total_cogs')->value('total_cogs');
+
+        $monthRevenue = Transaction::where('is_voided', false)
+            ->whereYear('created_at', now()->year)
+            ->whereMonth('created_at', now()->month)
+            ->sum('grand_total');
+        $monthCogs = TransactionDetail::whereHas('transaction', function ($q) {
+            $q->where('is_voided', false);
+            $q->whereYear('created_at', now()->year);
+            $q->whereMonth('created_at', now()->month);
+        })->selectRaw('COALESCE(SUM(cogs_snapshot * quantity), 0) as total_cogs')->value('total_cogs');
 
         return response()->json([
             'today' => [
                 'revenue' => (float) $dailyRevenue,
                 'transactions' => (int) $dailyCount,
                 'items_sold' => (int) $dailyItems,
+                'gross_profit' => (float) $dailyRevenue - (float) $dailyCogs,
             ],
             'month' => [
                 'revenue' => (float) $monthRevenue,
+                'gross_profit' => (float) $monthRevenue - (float) $monthCogs,
             ],
         ]);
     }

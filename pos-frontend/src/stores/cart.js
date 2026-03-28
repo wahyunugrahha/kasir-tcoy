@@ -123,26 +123,23 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   function recallOrder(orderId) {
-    const idx = heldOrders.value.findIndex((o) => o.id === orderId)
-    if (idx === -1) return { ok: false, message: 'Order tidak ditemukan.' }
-
-    // Merge into current cart or replace based on whether cart is empty
-    if (items.value.length === 0) {
-      items.value = heldOrders.value[idx].items.map((i) => ({ ...i }))
-      heldOrders.value.splice(idx, 1)
-      return { ok: true }
-    }
-
-    // If cart not empty, hold current cart first then recall
-    holdCart()
-    items.value = heldOrders.value[idx - 1]?.items.map((i) => ({ ...i })) ?? []
-
-    // simpler: just remove from held and load it
     const target = heldOrders.value.find((o) => o.id === orderId)
-    if (target) {
-      items.value = target.items.map((i) => ({ ...i }))
-      heldOrders.value = heldOrders.value.filter((o) => o.id !== orderId)
+
+    if (!target) {
+      return { ok: false, message: 'Order tidak ditemukan.' }
     }
+
+    // If current cart has items, hold it first so nothing is lost when switching orders.
+    if (items.value.length > 0) {
+      const holdResult = holdCart()
+
+      if (holdResult?.ok === false) {
+        return holdResult
+      }
+    }
+
+    items.value = target.items.map((i) => ({ ...i }))
+    heldOrders.value = heldOrders.value.filter((o) => o.id !== orderId)
 
     return { ok: true }
   }

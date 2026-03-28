@@ -6,10 +6,48 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 
 class UserController extends Controller
 {
+    public function managers(): JsonResponse
+    {
+        $managers = User::query()
+            ->where('role', 'admin')
+            ->select(['id', 'name', 'email'])
+            ->orderBy('name')
+            ->get();
+
+        return response()->json($managers);
+    }
+
+    public function verifyManagerPin(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'manager_user_id' => ['required', 'exists:users,id'],
+            'manager_pin' => ['required', 'string', 'min:4', 'max:20'],
+        ]);
+
+        $manager = User::query()->find($validated['manager_user_id']);
+
+        if (! $manager || $manager->role !== 'admin' || empty($manager->manager_pin) || ! Hash::check($validated['manager_pin'], $manager->manager_pin)) {
+            return response()->json([
+                'message' => 'PIN manager tidak valid.',
+                'valid' => false,
+            ], 422);
+        }
+
+        return response()->json([
+            'valid' => true,
+            'manager' => [
+                'id' => $manager->id,
+                'name' => $manager->name,
+                'email' => $manager->email,
+            ],
+        ]);
+    }
+
     public function index(): JsonResponse
     {
         $users = User::query()->latest()->paginate(15);

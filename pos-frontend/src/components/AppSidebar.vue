@@ -7,17 +7,22 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const navItems = [
-  { to: '/pos', label: 'Kasir', icon: '🛒' },
-  { to: '/products', label: 'Produk', icon: '📦' },
-  { to: '/history', label: 'Riwayat', icon: '📜' },
-  { to: '/reports', label: 'Laporan', icon: '📊' },
-  { to: '/settings', label: 'Pengaturan', icon: '⚙️' },
-  { to: '/orders', label: 'Order List', icon: '📋' },
-  { to: '/bills', label: 'Tagihan', icon: '🧾' },
-  { to: '/settlement', label: 'Settlement', icon: '💰' },
+  { to: '/pos', label: 'Kasir', icon: 'M3 7h18M6 7v13h12V7M9 11h6M9 15h4M8 4h8' },
+  { to: '/products', label: 'Produk', icon: 'M4 7l8-4 8 4-8 4-8-4zm0 0v10l8 4 8-4V7' },
+  { to: '/history', label: 'Riwayat', icon: 'M12 8v5l3 2M3.1 11A9 9 0 1112 21h-1m-7-4v4h4' },
+  { to: '/manager-approval', label: 'Approval Manager', icon: 'M9 11V8a3 3 0 016 0v3m-7 0h8a1 1 0 011 1v6a1 1 0 01-1 1H8a1 1 0 01-1-1v-6a1 1 0 011-1z' },
+  { to: '/reports', label: 'Laporan', icon: 'M5 20V10m7 10V4m7 16v-7M3 20h18' },
+  { to: '/settings', label: 'Pengaturan', icon: 'M12 8.5A3.5 3.5 0 1112 15.5 3.5 3.5 0 0112 8.5zm0-6.5v2m0 16v2m8.66-15l-1.73 1m-13.86 0L3.34 7m17.32 10l-1.73-1m-13.86 0L3.34 17M2 12h2m16 0h2' },
+  { to: '/orders', label: 'Order List', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
+  { to: '/bills', label: 'Tagihan', icon: 'M7 3h10l2 2v14l-2 2H7l-2-2V5l2-2zm3 5h4m-4 4h6m-6 4h5' },
+  { to: '/settlement', label: 'Settlement', icon: 'M4 7h16v10H4zM8 11h8M12 7v10M7 17h10' },
 ]
 
 const visibleNavItems = navItems.filter((item) => {
+  if (item.to === '/manager-approval' && auth.user?.role !== 'cashier') {
+    return false
+  }
+
   if (['/reports', '/settings'].includes(item.to) && auth.user?.role !== 'admin') {
     return false
   }
@@ -32,15 +37,15 @@ async function logout() {
 </script>
 
 <template>
-  <aside class="flex w-64 shrink-0 flex-col bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-white shadow-2xl">
-    <div class="border-b border-white/10 px-5 py-5">
-      <span class="text-xl font-black tracking-tight text-white">POS PRO</span>
-      <p class="mt-0.5 text-xs text-indigo-200">Professional Suite</p>
+  <aside class="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white/90 text-slate-700 backdrop-blur-sm">
+    <div class="border-b border-slate-200 px-5 py-5">
+      <span class="text-2xl font-black tracking-tight text-slate-800">KasirTcuy</span>
+      <p class="mt-0.5 text-xs text-slate-500">POS System App</p>
 
-      <div class="mt-4 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
-        <p class="text-xs uppercase tracking-wide text-slate-400">Login Sebagai</p>
-        <p class="mt-0.5 truncate text-sm font-semibold text-white">{{ auth.user?.name ?? 'Guest' }}</p>
-        <p class="text-xs text-indigo-200">{{ auth.user?.role ?? '-' }}</p>
+      <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 shadow-sm">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Login Sebagai</p>
+        <p class="mt-0.5 truncate text-sm font-semibold text-slate-800">{{ auth.user?.name ?? 'Guest' }}</p>
+        <p class="text-xs text-slate-500">{{ auth.user?.role ?? '-' }}</p>
       </div>
     </div>
 
@@ -49,24 +54,28 @@ async function logout() {
         <li v-for="item in visibleNavItems" :key="item.to">
           <RouterLink
             :to="item.to"
-            class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
-            active-class="bg-indigo-500 text-white hover:bg-indigo-500"
+            class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition-all hover:bg-slate-100 hover:text-slate-900"
+            active-class="bg-cyan-100 text-cyan-900 shadow-sm hover:bg-cyan-100"
           >
-            <span class="text-base leading-none">{{ item.icon }}</span>
+            <span class="grid h-6 w-6 place-items-center rounded-md border border-slate-300 bg-white text-slate-500">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                <path stroke-linecap="round" stroke-linejoin="round" :d="item.icon" />
+              </svg>
+            </span>
             {{ item.label }}
           </RouterLink>
         </li>
       </ul>
     </nav>
 
-    <div class="border-t border-white/10 px-5 py-4">
+    <div class="border-t border-slate-200 px-5 py-4">
       <button
-        class="mb-2 w-full rounded-xl border border-rose-300/20 bg-rose-500/10 px-3 py-2 text-sm font-medium text-rose-100 transition hover:bg-rose-500/20"
+        class="mb-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
         @click="logout"
       >
         Logout
       </button>
-      <p class="text-xs text-slate-400">v3.0 Professional POS</p>
+      <p class="text-xs text-slate-500">v2.0 By Ween</p>
     </div>
   </aside>
 </template>

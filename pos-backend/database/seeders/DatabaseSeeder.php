@@ -27,6 +27,7 @@ class DatabaseSeeder extends Seeder
                 'name' => 'Admin POS',
                 'email' => 'admin@pos.local',
                 'password' => Hash::make('password'),
+                'manager_pin' => Hash::make('123456'),
                 'role' => 'admin',
             ]);
 
@@ -110,6 +111,7 @@ class DatabaseSeeder extends Seeder
                 'product_id' => $lineOne->id,
                 'product_name_snapshot' => $lineOne->name,
                 'price_snapshot' => 18000,
+                'cogs_snapshot' => 12000,
                 'quantity' => 1,
                 'subtotal' => 18000,
             ]);
@@ -118,8 +120,15 @@ class DatabaseSeeder extends Seeder
                 'product_id' => $lineTwo->id,
                 'product_name_snapshot' => $lineTwo->name,
                 'price_snapshot' => 5000,
+                'cogs_snapshot' => 2500,
                 'quantity' => 1,
                 'subtotal' => 5000,
+            ]);
+
+            $transaction->payments()->create([
+                'payment_method' => 'cash',
+                'amount' => 30000,
+                'reference_number' => null,
             ]);
 
             $lineOne->decrement('stock', 1);

@@ -1,28 +1,83 @@
-# Kasir Tcoy
+# KasirTcuy
 
 Bahasa: Indonesia | [English](README.en.md)
 
-Kasir Tcoy adalah aplikasi Point of Sale berbasis monorepo yang terdiri dari backend API Laravel dan frontend Vue untuk operasional kasir, manajemen produk, settlement shift, dan laporan penjualan.
+KasirTcuy adalah aplikasi Point of Sale (POS) berbasis monorepo yang menggabungkan backend API Laravel dan frontend Vue untuk kebutuhan operasional kasir, manajemen master data, settlement shift, billing, riwayat transaksi, serta pelaporan penjualan.
 
-## Ringkasan
+Subjudul produk: POS System App.
 
-Proyek ini memisahkan tanggung jawab antara API dan client:
+## Daftar Isi
 
-- `pos-backend` menyediakan REST API, autentikasi token dengan Laravel Sanctum, transaksi, inventory movement, shift settlement, dan reporting.
-- `pos-frontend` menyediakan antarmuka kasir dan admin berbasis Vue 3, Pinia, Vue Router, Chart.js, dan Tailwind CSS v4.
+- [Ringkasan Proyek](#ringkasan-proyek)
+- [Fitur Utama](#fitur-utama)
+- [Tech Stack](#tech-stack)
+- [Struktur Monorepo](#struktur-monorepo)
+- [Arsitektur Singkat](#arsitektur-singkat)
+- [Prasyarat](#prasyarat)
+- [Panduan Instalasi Lokal](#panduan-instalasi-lokal)
+- [Menjalankan Aplikasi](#menjalankan-aplikasi)
+- [Akun Demo Seeder](#akun-demo-seeder)
+- [Endpoint API Utama](#endpoint-api-utama)
+- [Script Penting](#script-penting)
+- [Troubleshooting Umum](#troubleshooting-umum)
+- [Roadmap Pengembangan](#roadmap-pengembangan)
+- [Lisensi](#lisensi)
 
-Fitur utama yang sudah terlihat di codebase:
+## Ringkasan Proyek
 
-- Login berbasis token bearer.
-- Dashboard kasir untuk checkout cepat.
-- Hold order dan recall order pada keranjang.
+KasirTcuy memisahkan concern antara API dan client:
+
+- `pos-backend`: Laravel API untuk autentikasi, checkout, inventory movement, transaksi, shift, reporting, audit log, dan business rule.
+- `pos-frontend`: antarmuka POS/admin berbasis Vue 3 dengan alur kasir modern (split payment, hold order, riwayat, export Excel, dan lain-lain).
+
+Pendekatan ini memudahkan scaling tim dan deployment karena frontend dan backend dapat dijalankan terpisah.
+
+## Fitur Utama
+
+### 1) Autentikasi dan Otorisasi
+
+- Login token-based (Laravel Sanctum).
+- Session frontend di `localStorage`.
+- Pembatasan akses berbasis role (`admin`, `cashier`) di endpoint dan UI tertentu.
+
+### 2) Kasir / Checkout
+
+- Katalog produk dengan pencarian dan filter kategori.
+- Keranjang belanja dengan validasi stok real-time.
+- Metode pembayaran tunggal dan split payment.
+- Hitung subtotal, diskon persen, pajak persen, grand total, uang diterima, dan kembalian.
+- Hold order untuk menunda transaksi.
+- Input nama pembeli pada flow checkout.
 - Cetak struk transaksi terakhir.
-- Manajemen produk, kategori, customer, dan user.
-- Riwayat transaksi dan detail transaksi.
-- Void transaksi dengan restock stok otomatis.
-- Settlement shift dengan perbandingan kas fisik vs kas sistem.
-- Laporan ringkasan, penjualan per tanggal, dan produk terlaris.
-- Audit log untuk aksi tertentu.
+
+### 3) Transaksi dan Riwayat
+
+- Riwayat transaksi dengan filter status/metode/tanggal.
+- Detail transaksi (item, pembayaran, refund).
+- Void transaksi dengan guard approval sesuai role.
+- Refund parsial per item dengan alasan.
+
+### 4) Billing
+
+- Halaman daftar tagihan transaksi unpaid/partial.
+- Menampilkan total pembayaran, uang diterima, dan kembalian.
+- Menampilkan nama pembeli per transaksi.
+
+### 5) Laporan dan Export
+
+- Ringkasan penjualan dan analytics.
+- Export riwayat ke Excel native (`.xlsx`) multi-sheet:
+  - Sheet Ringkasan
+  - Sheet Detail
+- Header row freeze saat scroll di Excel.
+- Kolom nominal otomatis format Rupiah pada sheet export.
+
+### 6) Master Data dan Operasional
+
+- Manajemen kategori, produk, customer, user.
+- Inventory movement tercatat untuk mutasi stok.
+- Shift opening/closing dan settlement.
+- Approval manager flow untuk aksi tertentu.
 
 ## Tech Stack
 
@@ -33,7 +88,6 @@ Fitur utama yang sudah terlihat di codebase:
 - Laravel Sanctum
 - PostgreSQL
 - PHPUnit 12
-- Vite untuk asset backend
 
 ### Frontend
 
@@ -41,75 +95,141 @@ Fitur utama yang sudah terlihat di codebase:
 - Pinia
 - Vue Router
 - Axios
-- Chart.js dan vue-chartjs
 - Tailwind CSS v4
+- Chart.js + vue-chartjs
 - Vite
+- SheetJS (`xlsx`) untuk export Excel native
 
-## Struktur Repository
+## Struktur Monorepo
 
 ```text
 .
-|-- pos-backend/   # Laravel API + database + seeders + tests
-|-- pos-frontend/  # Vue app untuk POS/admin
-|-- package.json   # root dependency kecil untuk workspace
+|-- pos-backend/   # Laravel API, migration, seeder, tests
+|-- pos-frontend/  # Vue app POS/admin
+|-- package.json   # root workspace package
 ```
 
-Struktur utama:
+Lokasi penting:
 
-- `pos-backend/routes/api.php` berisi endpoint autentikasi, checkout, resource master data, transaksi, shift, report, inventory, dan audit log.
-- `pos-backend/database/seeders/DatabaseSeeder.php` menyediakan akun demo, data kategori, produk, customer, stok awal, dan contoh transaksi.
-- `pos-frontend/src/router/index.js` mendefinisikan halaman landing, login, POS, products, history, reports, settings, order list, bills, dan settlement.
-- `pos-frontend/src/stores` berisi state auth dan cart.
-- `pos-frontend/src/services/api.js` menangani base URL API dan injeksi bearer token.
+- `pos-backend/routes/api.php`: daftar endpoint API.
+- `pos-backend/app/Services/TransactionService.php`: business rule checkout/transaksi utama.
+- `pos-backend/database/seeders/DatabaseSeeder.php`: data demo awal.
+- `pos-frontend/src/router/index.js`: route page frontend.
+- `pos-frontend/src/pages`: halaman utama (Kasir, Riwayat, Bills, Settlement, dll).
+- `pos-frontend/src/services/api.js`: konfigurasi axios + bearer token.
 
-## Fitur Per Modul
+## Arsitektur Singkat
 
-### Auth
+1. User login dari frontend, menerima token Sanctum.
+2. Token disimpan di localStorage dan disisipkan otomatis di request API.
+3. Kasir membuat transaksi dari halaman POS.
+4. Backend memvalidasi payload, stok, approval, lalu menyimpan transaksi secara atomik.
+5. Data transaksi dipakai kembali untuk billing, laporan, settlement, dan export Excel.
 
-- Login melalui endpoint `POST /api/auth/login`.
-- Profil user aktif melalui `GET /api/auth/me`.
-- Logout token aktif melalui `POST /api/auth/logout`.
-- Frontend menyimpan sesi di `localStorage`.
+## Prasyarat
 
-### POS / Checkout
+- PHP 8.3 atau lebih baru.
+- Composer.
+- Node.js 20.19+ atau 22.12+.
+- npm.
+- PostgreSQL.
 
-- Memuat katalog produk dari backend.
-- Menambahkan item ke keranjang dengan validasi stok.
-- Mendukung metode pembayaran `cash`, `qris`, dan `debit`.
-- Menghitung subtotal, diskon, pajak, total akhir, pembayaran, dan kembalian.
-- Menyimpan transaksi dan mengurangi stok secara atomik di backend.
-- Menyediakan cetak struk untuk transaksi terakhir.
+## Panduan Instalasi Lokal
 
-### Order Management
+### 1) Setup Backend
 
-- Hold cart untuk menunda order.
-- Recall held order ke keranjang aktif.
-- Sinkronisasi jumlah item terhadap stok terbaru.
+```bash
+cd pos-backend
+composer install
+```
 
-### Produk dan Inventori
+Salin environment:
 
-- Endpoint untuk daftar, detail, tambah, ubah, dan hapus produk.
-- Inventory movement tercatat untuk stok masuk dan keluar.
-- Void transaksi akan mengembalikan stok dan membuat inventory movement baru.
+```bash
+# Windows
+copy .env.example .env
 
-### Shift Settlement
+# macOS/Linux
+cp .env.example .env
+```
 
-- Membuka shift baru dengan modal awal.
-- Menutup shift dengan input kas fisik.
-- Menghitung selisih kas.
-- Menyimpan riwayat shift.
+Generate key:
 
-### Reporting
+```bash
+php artisan key:generate
+```
 
-- Ringkasan penjualan hari ini dan bulan ini.
-- Grafik penjualan harian.
-- Grafik produk terlaris.
+Atur koneksi database PostgreSQL di `.env`:
 
-## Endpoint Utama
+```env
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=projectnganggur
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
+```
 
-Endpoint yang terverifikasi dari backend:
+Migrasi dan seed data:
 
-### Public / semi-public
+```bash
+php artisan migrate
+php artisan db:seed
+```
+
+### 2) Setup Frontend
+
+```bash
+cd ../pos-frontend
+npm install
+```
+
+Pastikan URL API frontend sesuai backend:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000/api
+```
+
+Jika tidak diisi, frontend fallback ke URL tersebut.
+
+## Menjalankan Aplikasi
+
+### Backend
+
+```bash
+cd pos-backend
+composer run dev
+```
+
+Alternatif minimal:
+
+```bash
+php artisan serve
+```
+
+Default backend: `http://127.0.0.1:8000`
+
+### Frontend
+
+```bash
+cd pos-frontend
+npm run dev
+```
+
+Default frontend: `http://127.0.0.1:5173`
+
+## Akun Demo Seeder
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@pos.local` | `password` |
+| Cashier | `cashier@pos.local` | `password` |
+
+Seeder juga menyiapkan kategori, produk, customer, stok awal, dan sample transaksi.
+
+## Endpoint API Utama
+
+### Public / Semi-Public
 
 - `GET /api/products`
 - `POST /api/auth/login`
@@ -120,9 +240,7 @@ Endpoint yang terverifikasi dari backend:
 - `POST /api/auth/logout`
 - `POST /api/checkout`
 
-### Versioned API
-
-Semua endpoint berikut berada di bawah prefix `/api/v1` dan dilindungi `auth:sanctum`:
+### Versioned (`/api/v1`)
 
 - `users`
 - `categories`
@@ -135,189 +253,53 @@ Semua endpoint berikut berada di bawah prefix `/api/v1` dan dilindungi `auth:san
 - `reports/sales-by-date`
 - `reports/top-products`
 - `audit-logs`
+- manager approval endpoints
 
-Beberapa endpoint dibatasi oleh middleware role `admin`, sementara kasir dapat mengakses alur operasional kasir dan transaksi sesuai kebutuhan.
+Catatan: sebagian endpoint dibatasi middleware role `admin`.
 
-## Akun Demo Seeder
-
-Data seeder backend membuat akun berikut:
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | `admin@pos.local` | `password` |
-| Cashier | `cashier@pos.local` | `password` |
-
-Seeder juga menambahkan:
-
-- 3 kategori awal.
-- 6 produk awal.
-- stok awal beserta inventory movement seed.
-- 3 customer contoh.
-- 1 transaksi contoh.
-
-## Menjalankan Project Secara Lokal
-
-### Prasyarat
-
-- PHP 8.3 atau lebih baru.
-- Composer.
-- Node.js 20.19+ atau 22.12+.
-- npm.
-- PostgreSQL.
-
-### 1. Setup backend
-
-Opsi manual:
-
-```bash
-cd pos-backend
-composer install
-```
-
-Salin file environment:
-
-```bash
-# Windows
-copy .env.example .env
-
-# macOS / Linux
-cp .env.example .env
-```
-
-Lalu generate application key:
-
-```bash
-php artisan key:generate
-```
-
-Alternatif cepat, backend juga menyediakan script setup bawaan:
-
-```bash
-cd pos-backend
-composer run setup
-```
-
-Jika memakai `composer run setup`, tetap jalankan `php artisan db:seed` bila Anda ingin data demo terisi.
-
-Konfigurasi database PostgreSQL di file `.env`:
-
-```env
-DB_CONNECTION=pgsql
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=projectnganggur
-DB_USERNAME=postgres
-DB_PASSWORD=your_password
-```
-
-Lalu jalankan migrasi dan seed:
-
-```bash
-php artisan migrate
-php artisan db:seed
-```
-
-Install asset backend bila diperlukan:
-
-```bash
-npm install
-```
-
-Untuk development backend:
-
-```bash
-composer run dev
-```
-
-Perintah tersebut menjalankan server Laravel, queue listener, log watcher, dan Vite backend secara paralel.
-
-Alternatif minimal:
-
-```bash
-php artisan serve
-```
-
-Backend API default akan tersedia di `http://127.0.0.1:8000`.
-
-### 2. Setup frontend
-
-```bash
-cd pos-frontend
-npm install
-npm run dev
-```
-
-Frontend default akan tersedia di `http://127.0.0.1:5173`.
-
-Secara default frontend memakai base URL:
-
-```env
-VITE_API_BASE_URL=http://127.0.0.1:8000/api
-```
-
-Jika variabel ini tidak diatur, frontend tetap fallback ke URL tersebut.
-
-### 3. Build production
-
-Backend asset:
-
-```bash
-cd pos-backend
-npm run build
-```
-
-Frontend:
-
-```bash
-cd pos-frontend
-npm run build
-```
-
-## Scripts Penting
+## Script Penting
 
 ### Backend
 
-- `composer run dev` menjalankan environment development Laravel.
-- `composer test` menjalankan test Laravel.
-- `npm run dev` menjalankan Vite backend.
-- `npm run build` build asset backend.
+- `composer run dev`: jalankan stack dev Laravel.
+- `composer test`: jalankan test Laravel.
+- `php artisan migrate`: jalankan migration.
+- `php artisan db:seed`: isi data seed.
 
 ### Frontend
 
-- `npm run dev` menjalankan Vite frontend.
-- `npm run build` build frontend.
-- `npm run preview` preview hasil build.
-- `npm run lint` menjalankan Oxlint dan ESLint.
-- `npm run format` menjalankan Prettier pada source frontend.
+- `npm run dev`: jalankan Vite dev server.
+- `npm run build`: build production.
+- `npm run preview`: preview hasil build.
+- `npm run lint`: jalankan lint.
+- `npm run format`: format source frontend.
 
-## Alur Data Singkat
+## Troubleshooting Umum
 
-1. User login dari frontend dan menerima bearer token dari Laravel Sanctum.
-2. Token disimpan di `localStorage` dan dikirim otomatis lewat interceptor Axios.
-3. Kasir memilih produk dan frontend mengirim payload checkout ke backend.
-4. Backend membuat nomor invoice, memvalidasi stok, menyimpan detail transaksi, dan mengurangi stok dalam transaksi database.
-5. Inventory movement, shift, dan laporan dibangun dari data transaksi yang sama.
+### 1) Frontend tidak bisa akses API
 
-## Pengembangan Lanjutan
+- Cek backend aktif di port yang benar.
+- Cek `VITE_API_BASE_URL`.
+- Pastikan token login tersedia.
 
-Beberapa area yang tampak siap dikembangkan lebih lanjut:
+### 2) Error database saat migrate
 
-- dokumentasi request/response API yang lebih detail.
-- test coverage untuk flow POS dan settlement.
-- deployment guide untuk production.
-- screenshot UI untuk landing, cashier, reports, dan settlement.
+- Pastikan database PostgreSQL sudah dibuat.
+- Verifikasi kredensial `.env`.
+- Jalankan ulang `php artisan migrate`.
 
-## Catatan
+### 3) Export Excel tidak muncul
 
-- Environment proyek ini digunakan dengan PostgreSQL. Sesuaikan kredensial database di `.env` sebelum menjalankan migrasi.
-- Frontend dan backend berjalan sebagai aplikasi terpisah, sehingga deployment juga bisa dipisah.
-- Beberapa route frontend dibatasi role admin melalui metadata router.
+- Pastikan browser tidak memblokir download.
+- Coba ulang dari halaman Riwayat dengan data transaksi tersedia.
+
+## Roadmap Pengembangan
+
+- Dokumentasi API request/response lebih detail.
+- Peningkatan test coverage end-to-end checkout/refund/void.
+- Integrasi printer thermal yang lebih kaya opsi.
+- Hardening observability dan audit trail.
 
 ## Lisensi
 
-Project ini menggunakan lisensi MIT. Lihat file [LICENSE](LICENSE).
-
-## Versi Bahasa Lain
-
-- Bahasa Indonesia: file ini.
-- English: [README.en.md](README.en.md)
+MIT License.

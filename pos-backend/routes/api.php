@@ -25,6 +25,8 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
+    Route::get('managers', [UserController::class, 'managers']);
+    Route::post('managers/verify-pin', [UserController::class, 'verifyManagerPin']);
     Route::apiResource('users', UserController::class)->middleware('role:admin');
     Route::apiResource('categories', CategoryController::class)->middleware('role:admin');
     Route::apiResource('products', ProductController::class)->only(['index', 'show']);
@@ -34,7 +36,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get('transactions', [TransactionController::class, 'index']);
     Route::post('transactions', [TransactionController::class, 'store']);
     Route::get('transactions/{transaction}', [TransactionController::class, 'show']);
-    Route::put('transactions/{transaction}/void', [TransactionController::class, 'void'])->middleware('role:admin');
+    Route::put('transactions/{transaction}/void', [TransactionController::class, 'void'])->middleware('role:admin,cashier');
+    Route::post('transactions/{transaction}/refund', [TransactionController::class, 'refund'])->middleware('role:admin,cashier');
 
     Route::get('inventory-movements', [InventoryMovementController::class, 'index']);
     Route::post('inventory-movements', [InventoryMovementController::class, 'store']);
@@ -43,6 +46,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get('shifts', [ShiftController::class, 'index']);
     Route::post('shifts', [ShiftController::class, 'store']);
     Route::get('shifts/{shift}', [ShiftController::class, 'show']);
+    Route::post('shifts/{shift}/cash-movements', [ShiftController::class, 'cashMovement']);
     Route::put('shifts/{shift}/close', [ShiftController::class, 'close']);
 
     // Reports

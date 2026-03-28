@@ -29,11 +29,19 @@ const showUserForm = ref(false)
 
 const SETTINGS_KEY = 'pos_store_settings'
 
+function normalizePercent(value) {
+  const raw = Number.parseFloat(value)
+  if (!Number.isFinite(raw)) return 0
+  const clamped = Math.max(0, Math.min(100, raw))
+  return Math.round(clamped * 100) / 100
+}
+
 function loadStoreSettings() {
   const saved = localStorage.getItem(SETTINGS_KEY)
   if (saved) {
       try {
         Object.assign(storeSettings.value, JSON.parse(saved))
+        storeSettings.value.tax_percentage = normalizePercent(storeSettings.value.tax_percentage)
       } catch {
         // Malformed JSON in localStorage — silently ignore
       }
@@ -41,9 +49,14 @@ function loadStoreSettings() {
 }
 
 function saveStoreSettings() {
+  storeSettings.value.tax_percentage = normalizePercent(storeSettings.value.tax_percentage)
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(storeSettings.value))
   successMsg.value = 'Pengaturan toko berhasil disimpan!'
   setTimeout(() => { successMsg.value = '' }, 3000)
+}
+
+function formatTaxInputOnBlur() {
+  storeSettings.value.tax_percentage = normalizePercent(storeSettings.value.tax_percentage)
 }
 
 async function loadData() {
@@ -177,7 +190,8 @@ onMounted(() => {
         </label>
         <label class="block">
           <span class="mb-1 block text-sm text-slate-600">Pajak Default (%)</span>
-          <input v-model.number="storeSettings.tax_percentage" type="number" min="0" max="100" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <input v-model.number="storeSettings.tax_percentage" type="number" min="0" max="100" step="0.01" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" @blur="formatTaxInputOnBlur" />
+          <p class="mt-1 text-xs text-slate-500">Maks 100%</p>
         </label>
       </div>
       <button class="mt-4 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500" @click="saveStoreSettings">

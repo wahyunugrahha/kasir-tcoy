@@ -45,6 +45,12 @@ const router = createRouter({
       meta: { title: 'Riwayat Transaksi', requiresAuth: true },
     },
     {
+      path: '/manager-approval',
+      name: 'manager-approval',
+      component: () => import('../views/ManagerApprovalView.vue'),
+      meta: { title: 'Approval Manager', requiresAuth: true, roles: ['cashier'] },
+    },
+    {
       path: '/reports',
       name: 'reports',
       component: () => import('../views/ReportView.vue'),

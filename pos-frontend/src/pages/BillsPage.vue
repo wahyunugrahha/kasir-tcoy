@@ -6,6 +6,20 @@ import api from '../services/api'
 const bills = ref([])
 const loading = ref(false)
 const error = ref('')
+const storeName = ref('POS MODERN')
+const SETTINGS_KEY = 'pos_store_settings'
+
+function loadStoreName() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return
+
+    const parsed = JSON.parse(raw)
+    storeName.value = String(parsed?.store_name || 'POS MODERN')
+  } catch {
+    storeName.value = 'POS MODERN'
+  }
+}
 
 async function loadBills() {
   loading.value = true
@@ -30,7 +44,18 @@ function formatDate(dateStr) {
   })
 }
 
-onMounted(loadBills)
+function resolveReceivedAmount(bill) {
+  if (Array.isArray(bill?.payments) && bill.payments.length > 0) {
+    return bill.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  }
+
+  return Number(bill?.cash_received ?? bill?.amount_paid ?? 0)
+}
+
+onMounted(() => {
+  loadStoreName()
+  loadBills()
+})
 </script>
 
 <template>
@@ -38,6 +63,7 @@ onMounted(loadBills)
     <div class="mb-5 flex items-center justify-between">
       <div>
         <h1 class="text-xl font-bold text-slate-800">Tagihan (Bills)</h1>
+        <p class="text-sm font-medium text-slate-600">{{ storeName }}</p>
         <p class="text-sm text-slate-500">Transaksi belum lunas / pay-later</p>
       </div>
       <button class="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50" @click="loadBills">
@@ -60,8 +86,11 @@ onMounted(loadBills)
           <tr>
             <th class="px-4 py-3">Invoice</th>
             <th class="px-4 py-3">Tanggal</th>
+            <th class="px-4 py-3">Nama Pembeli</th>
             <th class="px-4 py-3">Pelanggan</th>
-            <th class="px-4 py-3 text-right">Total</th>
+            <th class="px-4 py-3 text-right">Total Pembayaran</th>
+            <th class="px-4 py-3 text-right">Uang Diterima</th>
+            <th class="px-4 py-3 text-right">Kembalian</th>
             <th class="px-4 py-3">Status</th>
           </tr>
         </thead>
@@ -69,8 +98,11 @@ onMounted(loadBills)
           <tr v-for="bill in bills" :key="bill.id" class="hover:bg-slate-50">
             <td class="px-4 py-3 font-mono font-medium text-indigo-600">{{ bill.invoice_number }}</td>
             <td class="px-4 py-3 text-slate-600">{{ formatDate(bill.created_at) }}</td>
+            <td class="px-4 py-3 text-slate-600">{{ bill.customer_name ?? bill.customer?.name ?? '-' }}</td>
             <td class="px-4 py-3 text-slate-600">{{ bill.customer?.name ?? '-' }}</td>
             <td class="px-4 py-3 text-right font-semibold">{{ formatCurrency(bill.grand_total) }}</td>
+            <td class="px-4 py-3 text-right font-semibold text-slate-700">{{ formatCurrency(resolveReceivedAmount(bill)) }}</td>
+            <td class="px-4 py-3 text-right font-semibold text-slate-700">{{ formatCurrency(bill.cash_change ?? 0) }}</td>
             <td class="px-4 py-3">
               <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">{{ bill.payment_status }}</span>
             </td>
