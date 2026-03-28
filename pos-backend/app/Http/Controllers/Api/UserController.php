@@ -62,7 +62,12 @@ class UserController extends Controller
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', Password::default()],
             'role' => ['required', 'in:admin,cashier'],
+            'manager_pin' => ['nullable', 'string', 'min:4', 'max:20', 'regex:/^[0-9]+$/'],
         ]);
+
+        if (isset($validated['manager_pin']) && $validated['role'] !== 'admin') {
+            unset($validated['manager_pin']);
+        }
 
         $user = User::create($validated);
 
@@ -81,10 +86,19 @@ class UserController extends Controller
             'email' => ['required', 'email', 'max:255', 'unique:users,email,'.$user->id],
             'password' => ['nullable', Password::default()],
             'role' => ['required', 'in:admin,cashier'],
+            'manager_pin' => ['nullable', 'string', 'min:4', 'max:20', 'regex:/^[0-9]+$/'],
         ]);
 
         if (empty($validated['password'])) {
             unset($validated['password']);
+        }
+
+        // PIN hanya berlaku untuk admin; hapus PIN jika role bukan admin
+        if ($validated['role'] !== 'admin') {
+            $validated['manager_pin'] = null;
+        } elseif (!array_key_exists('manager_pin', $validated) || $validated['manager_pin'] === null || $validated['manager_pin'] === '') {
+            // Kosong = tidak mengubah PIN yang sudah ada
+            unset($validated['manager_pin']);
         }
 
         $user->update($validated);

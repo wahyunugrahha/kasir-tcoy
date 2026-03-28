@@ -1,6 +1,10 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import api from '../services/api'
+import { useAuthStore } from '../stores/auth'
+
+const auth = useAuthStore()
+const isAdmin = auth.isAdmin
 
 const loading = ref(false)
 const error = ref('')
@@ -22,7 +26,7 @@ const editingCatId = ref(null)
 
 // Users management
 const users = ref([])
-const userForm = ref({ name: '', email: '', role: 'cashier', password: '' })
+const userForm = ref({ name: '', email: '', role: 'cashier', password: '', manager_pin: '' })
 const userSubmitting = ref(false)
 const editingUserId = ref(null)
 const showUserForm = ref(false)
@@ -114,13 +118,13 @@ async function deleteCategory(id) {
 // User CRUD
 function openCreateUser() {
   editingUserId.value = null
-  userForm.value = { name: '', email: '', role: 'cashier', password: '' }
+  userForm.value = { name: '', email: '', role: 'cashier', password: '', manager_pin: '' }
   showUserForm.value = true
 }
 
 function openEditUser(user) {
   editingUserId.value = user.id
-  userForm.value = { name: user.name, email: user.email, role: user.role, password: '' }
+  userForm.value = { name: user.name, email: user.email, role: user.role, password: '', manager_pin: '' }
   showUserForm.value = true
 }
 
@@ -130,6 +134,7 @@ async function saveUser() {
   try {
     const payload = { ...userForm.value }
     if (!payload.password) delete payload.password
+    if (!payload.manager_pin) delete payload.manager_pin
 
     if (editingUserId.value) {
       await api.put(`/v1/users/${editingUserId.value}`, payload)
@@ -160,6 +165,46 @@ onMounted(() => {
   loadStoreSettings()
   loadData()
 })
+
+// ── Ganti PIN Saya ───────────────────────────────────────────────────────────
+const pinForm = ref({ current_pin: '', new_pin: '', confirm_pin: '' })
+const pinSubmitting = ref(false)
+const pinError = ref('')
+const pinSuccess = ref('')
+
+async function saveMyPin() {
+  pinError.value = ''
+  pinSuccess.value = ''
+
+  if (pinForm.value.new_pin.length < 4 || !/^[0-9]+$/.test(pinForm.value.new_pin)) {
+    pinError.value = 'PIN baru harus minimal 4 digit angka.'
+    return
+  }
+  if (pinForm.value.new_pin !== pinForm.value.confirm_pin) {
+    pinError.value = 'Konfirmasi PIN tidak cocok.'
+    return
+  }
+
+  pinSubmitting.value = true
+  try {
+    await api.put(`/v1/users/${auth.user.id}`, {
+      name: auth.user.name,
+      email: auth.user.email,
+      role: auth.user.role,
+      current_pin: pinForm.value.current_pin || undefined,
+      manager_pin: pinForm.value.new_pin,
+    })
+    pinSuccess.value = 'PIN Manager berhasil diperbarui.'
+    pinForm.value = { current_pin: '', new_pin: '', confirm_pin: '' }
+  } catch (e) {
+    const errData = e.response?.data
+    pinError.value = errData?.errors
+      ? Object.values(errData.errors).flat().join(', ')
+      : (errData?.message ?? 'Gagal menyimpan PIN.')
+  } finally {
+    pinSubmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -270,6 +315,51 @@ onMounted(() => {
       </table>
     </div>
 
+    <!-- Ganti PIN Saya (hanya admin) -->
+    <div v-if="isAdmin" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 class="mb-1 font-semibold text-slate-700">Ganti Manager PIN Saya</h2>
+      <p class="mb-4 text-xs text-slate-500">PIN ini digunakan untuk approval void, refund, dan diskon manual di kasir.</p>
+
+      <div v-if="pinError" class="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{{ pinError }}</div>
+      <div v-if="pinSuccess" class="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{{ pinSuccess }}</div>
+
+      <div class="grid gap-4 sm:grid-cols-3 text-sm">
+        <label class="block">
+          <span class="mb-1 block text-slate-600">PIN Baru *</span>
+          <input
+            v-model="pinForm.new_pin"
+            type="password"
+            inputmode="numeric"
+            maxlength="20"
+            placeholder="Min. 4 digit angka"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2"
+            autocomplete="new-password"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1 block text-slate-600">Konfirmasi PIN *</span>
+          <input
+            v-model="pinForm.confirm_pin"
+            type="password"
+            inputmode="numeric"
+            maxlength="20"
+            placeholder="Ulangi PIN baru"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2"
+            autocomplete="new-password"
+          />
+        </label>
+        <div class="flex items-end">
+          <button
+            :disabled="pinSubmitting || !pinForm.new_pin || !pinForm.confirm_pin"
+            class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+            @click="saveMyPin"
+          >
+            {{ pinSubmitting ? 'Menyimpan...' : 'Simpan PIN' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- User form modal -->
     <Transition name="fade">
       <div v-if="showUserForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -298,6 +388,19 @@ onMounted(() => {
             <label class="block">
               <span class="mb-1 block text-slate-600">Password {{ editingUserId ? '(kosongkan jika tidak diubah)' : '*' }}</span>
               <input v-model="userForm.password" type="password" class="w-full rounded-lg border border-slate-300 px-3 py-2" autocomplete="new-password" />
+            </label>
+            <label v-if="userForm.role === 'admin'" class="block">
+              <span class="mb-1 block text-slate-600">Manager PIN {{ editingUserId ? '(kosongkan jika tidak diubah)' : '*' }}</span>
+              <input
+                v-model="userForm.manager_pin"
+                type="password"
+                inputmode="numeric"
+                maxlength="20"
+                placeholder="Min. 4 digit angka"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                autocomplete="new-password"
+              />
+              <p class="mt-1 text-xs text-slate-500">Digunakan untuk approval void, refund, dan diskon manual.</p>
             </label>
           </div>
 

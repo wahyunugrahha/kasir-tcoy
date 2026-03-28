@@ -14,10 +14,15 @@ class ShiftController extends Controller
 {
     public function index(): JsonResponse
     {
-        $shifts = Shift::query()
+        $query = Shift::query()
             ->with('user:id,name')
-            ->latest()
-            ->paginate(20);
+            ->latest();
+
+        if ($this->isNonAdmin($request = request())) {
+            $query->where('user_id', (int) $request->user()->id);
+        }
+
+        $shifts = $query->paginate(20);
 
         return response()->json($shifts);
     }
@@ -25,12 +30,13 @@ class ShiftController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'user_id' => ['required', 'exists:users,id'],
             'opening_cash' => ['required', 'numeric', 'min:0'],
         ]);
 
+        $userId = (int) $request->user()->id;
+
         // Check if this user already has an open shift
-        $existingOpen = Shift::where('user_id', $validated['user_id'])
+        $existingOpen = Shift::where('user_id', $userId)
             ->where('status', 'open')
             ->first();
 
@@ -42,7 +48,7 @@ class ShiftController extends Controller
         }
 
         $shift = Shift::create([
-            'user_id' => $validated['user_id'],
+            'user_id' => $userId,
             'opening_cash' => $validated['opening_cash'],
             'status' => 'open',
         ]);
@@ -52,6 +58,10 @@ class ShiftController extends Controller
 
     public function show(Shift $shift): JsonResponse
     {
+        if (! $this->canAccessShift(request(), $shift)) {
+            return response()->json(['message' => 'Tidak diizinkan mengakses shift ini.'], 403);
+        }
+
         return response()->json($shift->load([
             'user:id,name',
             'cashMovements:id,shift_id,user_id,type,amount,reason,notes,created_at',
@@ -61,6 +71,10 @@ class ShiftController extends Controller
 
     public function cashMovement(Request $request, Shift $shift): JsonResponse
     {
+        if (! $this->canAccessShift($request, $shift)) {
+            return response()->json(['message' => 'Tidak diizinkan mengakses shift ini.'], 403);
+        }
+
         if ($shift->status !== 'open') {
             return response()->json(['message' => 'Shift sudah ditutup, tidak bisa mencatat cash movement.'], 422);
         }
@@ -86,6 +100,10 @@ class ShiftController extends Controller
 
     public function close(Request $request, Shift $shift): JsonResponse
     {
+        if (! $this->canAccessShift($request, $shift)) {
+            return response()->json(['message' => 'Tidak diizinkan mengakses shift ini.'], 403);
+        }
+
         if ($shift->status === 'closed') {
             return response()->json(['message' => 'Shift ini sudah ditutup.'], 422);
         }
@@ -146,5 +164,19 @@ class ShiftController extends Controller
         ]);
 
         return response()->json($shift->load('user:id,name'));
+    }
+
+    private function canAccessShift(Request $request, Shift $shift): bool
+    {
+        if (! $this->isNonAdmin($request)) {
+            return true;
+        }
+
+        return (int) $shift->user_id === (int) $request->user()->id;
+    }
+
+    private function isNonAdmin(Request $request): bool
+    {
+        return ($request->user()?->role ?? null) !== 'admin';
     }
 }

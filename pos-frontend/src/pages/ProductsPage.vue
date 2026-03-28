@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import api from '../services/api'
 
 const products = ref([])
@@ -11,6 +11,11 @@ const successMsg = ref('')
 const showForm = ref(false)
 const editingId = ref(null)
 const BACKEND_URL = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') ?? 'http://127.0.0.1:8000'
+const LOW_STOCK_THRESHOLD = 5
+
+const lowStockProducts = computed(() =>
+  products.value.filter((p) => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD)
+)
 
 const form = ref({
   category_id: '',
@@ -152,6 +157,12 @@ onMounted(loadData)
     <div v-if="error" class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>
     <div v-if="successMsg" class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ successMsg }}</div>
 
+    <!-- Low stock alert banner -->
+    <div v-if="lowStockProducts.length > 0" class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <p class="font-semibold">&#9888; {{ lowStockProducts.length }} produk hampir habis (stok &le; {{ LOW_STOCK_THRESHOLD }})</p>
+      <p class="mt-1 text-xs">{{ lowStockProducts.map((p) => `${p.name} (${p.stock})`).join(', ') }}</p>
+    </div>
+
     <!-- Product grid -->
     <div v-if="loading" class="py-12 text-center text-slate-500">Memuat produk...</div>
 
@@ -170,7 +181,14 @@ onMounted(loadData)
             class="h-full w-full object-cover"
           />
           <div v-else class="flex h-full items-center justify-center text-4xl text-slate-300">📦</div>
-          <span class="absolute right-2 top-2 rounded-full bg-white/80 px-2 py-0.5 text-xs font-semibold text-slate-600 shadow-sm">
+          <span
+            class="absolute right-2 top-2 rounded-full px-2 py-0.5 text-xs font-semibold shadow-sm"
+            :class="product.stock <= 0
+              ? 'bg-rose-500 text-white'
+              : product.stock <= 5
+                ? 'bg-amber-400 text-white'
+                : 'bg-white/80 text-slate-600'"
+          >
             Stok: {{ product.stock }}
           </span>
         </div>

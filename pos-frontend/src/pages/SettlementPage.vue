@@ -1,6 +1,9 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import api from '../services/api'
+import { useAuthStore } from '../stores/auth'
+
+const auth = useAuthStore()
 
 const openShift = ref(null)
 const openShiftDetail = ref(null)
@@ -11,7 +14,7 @@ const error = ref('')
 const successMsg = ref('')
 
 // Open shift form
-const openForm = ref({ user_id: 2, opening_cash: '' })
+const openForm = ref({ opening_cash: '' })
 
 // Close shift form
 const closeForm = ref({ closing_cash_physical: '', notes: '' })
@@ -37,7 +40,7 @@ async function loadShifts() {
   try {
     const res = await api.get('/v1/shifts')
     shifts.value = res.data.data ?? []
-    openShift.value = shifts.value.find((s) => s.status === 'open') ?? null
+    openShift.value = shifts.value.find((s) => s.status === 'open' && Number(s.user_id) === Number(auth.user?.id)) ?? null
     await loadOpenShiftDetail()
   } catch {
     error.value = 'Gagal memuat data shift.'
@@ -82,7 +85,6 @@ async function startShift() {
   submitting.value = true
   try {
     await api.post('/v1/shifts', {
-      user_id: Number(openForm.value.user_id),
       opening_cash: Number(openForm.value.opening_cash),
     })
     successMsg.value = 'Shift berhasil dibuka!'
@@ -142,10 +144,9 @@ onMounted(loadShifts)
     <div v-if="!openShift" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <h2 class="mb-4 text-base font-semibold text-slate-700">Buka Shift Baru</h2>
       <div class="space-y-4">
-        <label class="block">
-          <span class="mb-1 block text-sm text-slate-600">Kasir (User ID)</span>
-          <input v-model.number="openForm.user_id" type="number" min="1" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-        </label>
+        <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          Akun aktif: <span class="font-semibold">{{ auth.user?.name ?? '-' }}</span>
+        </div>
         <label class="block">
           <span class="mb-1 block text-sm text-slate-600">Modal Awal Kas (Rp)</span>
           <input v-model.number="openForm.opening_cash" type="number" min="0" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="0" />

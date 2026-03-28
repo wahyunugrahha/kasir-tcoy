@@ -12,6 +12,8 @@ const props = defineProps({
   },
 })
 
+const LOW_STOCK_THRESHOLD = 5
+
 const emit = defineEmits(['refresh', 'add'])
 
 const searchQuery = ref('')
@@ -109,7 +111,10 @@ defineExpose({ focusSearch })
       <button
         v-for="product in filteredProducts"
         :key="product.id"
-        class="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+        class="group relative overflow-hidden rounded-2xl border text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+        :class="product.stock > 0 && product.stock <= LOW_STOCK_THRESHOLD
+          ? 'border-amber-300 bg-amber-50'
+          : 'border-slate-200 bg-white'"
         :disabled="product.stock <= 0"
         @click="emit('add', product)"
       >
@@ -134,8 +139,8 @@ defineExpose({ focusSearch })
           <p class="mt-2 text-xl font-semibold text-slate-800">
             {{ formatCurrency(product.selling_price) }}
           </p>
-          <p class="mt-0.5 text-xs" :class="product.stock > 0 ? 'text-emerald-600' : 'text-rose-500'">
-            Stok {{ product.stock }}
+          <p class="mt-0.5 text-xs" :class="product.stock <= 0 ? 'text-rose-500' : product.stock <= LOW_STOCK_THRESHOLD ? 'font-semibold text-amber-600' : 'text-emerald-600'">
+            {{ product.stock <= 0 ? 'Stok habis' : product.stock <= LOW_STOCK_THRESHOLD ? `⚠ Stok menipis (${product.stock})` : `Stok ${product.stock}` }}
           </p>
         </div>
       </button>

@@ -23,7 +23,7 @@ const visibleNavItems = navItems.filter((item) => {
     return false
   }
 
-  if (['/reports', '/settings'].includes(item.to) && auth.user?.role !== 'admin') {
+  if (['/products', '/reports', '/settings'].includes(item.to) && auth.user?.role !== 'admin') {
     return false
   }
 

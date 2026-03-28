@@ -12,6 +12,7 @@ export const useManagerApprovalStore = defineStore('managerApproval', () => {
   const managerEmail = ref('')
   const managerPin = ref('')
   const expiresAt = ref(0)
+  const autoExpireTimerId = ref(null)
 
   const isValid = computed(() => {
     return Boolean(managerUserId.value && managerPin.value && Number(nowTs.value) < Number(expiresAt.value || 0))
@@ -45,14 +46,24 @@ export const useManagerApprovalStore = defineStore('managerApproval', () => {
   }
 
   function setApproval({ manager, pin }) {
+    if (autoExpireTimerId.value) {
+      window.clearTimeout(autoExpireTimerId.value)
+    }
     managerUserId.value = Number(manager.id)
     managerName.value = manager.name ?? ''
     managerEmail.value = manager.email ?? ''
     managerPin.value = String(pin)
     expiresAt.value = Date.now() + APPROVAL_TTL_MS
+    autoExpireTimerId.value = window.setTimeout(() => {
+      clearApproval()
+    }, APPROVAL_TTL_MS)
   }
 
   function clearApproval() {
+    if (autoExpireTimerId.value) {
+      window.clearTimeout(autoExpireTimerId.value)
+      autoExpireTimerId.value = null
+    }
     managerUserId.value = null
     managerName.value = ''
     managerEmail.value = ''

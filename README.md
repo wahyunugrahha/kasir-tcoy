@@ -43,6 +43,7 @@ Pendekatan ini memudahkan scaling tim dan deployment karena frontend dan backend
 ### 2) Kasir / Checkout
 
 - Katalog produk dengan pencarian dan filter kategori.
+- Low stock alert (stok menipis) pada katalog kasir untuk stok <= 5.
 - Keranjang belanja dengan validasi stok real-time.
 - Metode pembayaran tunggal dan split payment.
 - Hitung subtotal, diskon persen, pajak persen, grand total, uang diterima, dan kembalian.
@@ -75,9 +76,11 @@ Pendekatan ini memudahkan scaling tim dan deployment karena frontend dan backend
 ### 6) Master Data dan Operasional
 
 - Manajemen kategori, produk, customer, user.
+- Halaman manajemen produk dibatasi khusus role admin.
 - Inventory movement tercatat untuk mutasi stok.
-- Shift opening/closing dan settlement.
+- Shift opening/closing dan settlement berbasis akun login (non-admin hanya bisa mengakses shift miliknya).
 - Approval manager flow untuk aksi tertentu.
+- Manager dapat mengganti PIN sendiri dari halaman Pengaturan.
 
 ## Tech Stack
 
@@ -257,6 +260,16 @@ Seeder juga menyiapkan kategori, produk, customer, stok awal, dan sample transak
 
 Catatan: sebagian endpoint dibatasi middleware role `admin`.
 
+## Catatan Perilaku Role
+
+- Role `admin`:
+  - Dapat mengakses manajemen produk, laporan, pengaturan, seluruh data shift.
+  - Dapat membuat/mengubah user termasuk manager PIN.
+- Role `cashier`:
+  - Fokus pada POS, transaksi, bills, dan settlement akun sendiri.
+  - Tidak dapat mengakses halaman manajemen produk.
+- Endpoint `POST /api/v1/shifts` menggunakan akun login dari token (`auth user`) untuk `user_id`, sehingga tidak perlu kirim `user_id` dari frontend.
+
 ## Script Penting
 
 ### Backend
@@ -292,6 +305,11 @@ Catatan: sebagian endpoint dibatasi middleware role `admin`.
 
 - Pastikan browser tidak memblokir download.
 - Coba ulang dari halaman Riwayat dengan data transaksi tersedia.
+
+### 4) Akun cashier tidak bisa buka halaman Produk
+
+- Ini perilaku yang diharapkan.
+- Halaman manajemen produk hanya untuk role `admin`.
 
 ## Roadmap Pengembangan
 

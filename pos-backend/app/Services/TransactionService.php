@@ -17,6 +17,9 @@ use Illuminate\Validation\ValidationException;
 
 class TransactionService
 {
+    /** Cached once per process — schema does not change at runtime. */
+    private static ?bool $productVariantsTableExists = null;
+
     public function create(array $validated, bool $requireOpenShift = false, string $movementNotes = 'Automatic deduction from sales transaction'): Transaction
     {
         if ($requireOpenShift && ! $this->hasOpenShift((int) $validated['user_id'])) {
@@ -59,7 +62,8 @@ class TransactionService
                 ->get()
                 ->keyBy('id');
 
-            $hasProductVariantsTable = Schema::hasTable('product_variants');
+            $hasProductVariantsTable = self::$productVariantsTableExists
+                ?? (self::$productVariantsTableExists = Schema::hasTable('product_variants'));
 
             if (! $hasProductVariantsTable && $variantIds->isNotEmpty()) {
                 throw ValidationException::withMessages([

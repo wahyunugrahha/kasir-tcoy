@@ -36,7 +36,7 @@ const router = createRouter({
       path: '/products',
       name: 'products',
       component: () => import('../views/ProductView.vue'),
-      meta: { title: 'Manajemen Produk', requiresAuth: true },
+      meta: { title: 'Manajemen Produk', requiresAuth: true, roles: ['admin'] },
     },
     {
       path: '/history',
