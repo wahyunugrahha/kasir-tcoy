@@ -39,7 +39,7 @@ Pendekatan ini memudahkan scaling tim dan deployment karena frontend dan backend
 - Landing page publik (`/`) yang menjelaskan produk (alur kerja, peran pengguna, fitur), terpisah dari shell aplikasi yang butuh login. Halaman `/login` juga publik.
 - Tema terang/gelap di seluruh halaman (composable `useTheme`), tombol toggle di header sidebar (halaman yang butuh login) atau header landing/login. Pilihan tersimpan di `localStorage`, default terang saat kunjungan pertama.
 - UI dwibahasa (Indonesia/Inggris) lewat `vue-i18n`, tombol toggle EN/ID di sebelah toggle tema. Pilihan tersimpan di `localStorage` (`pos_locale`), default Indonesia.
-- Desain mengikuti `DESIGN.md` di root repo (sistem desain terinspirasi Coinbase, diadaptasi untuk konteks kasir/POS).
+- Sistem desain terinspirasi Coinbase, diadaptasi untuk konteks kasir/POS.
 
 ### 2) Autentikasi dan Otorisasi
 
@@ -133,7 +133,6 @@ Lokasi penting:
 - `pos-frontend/src/services/api.js`: konfigurasi axios + bearer token.
 - `pos-frontend/src/i18n/`: setup vue-i18n dan kamus terjemahan Indonesia/Inggris.
 - `pos-frontend/src/composables/useTheme.js`: toggle tema terang/gelap, tersimpan di `localStorage`.
-- `DESIGN.md` (root repo): dokumentasi sistem desain aplikasi.
 
 ## Arsitektur Singkat
 

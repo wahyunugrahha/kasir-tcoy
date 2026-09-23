@@ -71,7 +71,6 @@ Important locations:
 - `pos-frontend/src/services/api.js` handles the API base URL and bearer token injection.
 - `pos-frontend/src/i18n/` holds the vue-i18n setup and the Indonesian/English translation dictionaries.
 - `pos-frontend/src/composables/useTheme.js` holds the light/dark theme toggle, persisted to `localStorage`.
-- `DESIGN.md` (repo root) documents the app's design system (Coinbase-inspired, adapted for a cashier/POS context).
 
 ## Feature Modules
 
@@ -142,7 +141,7 @@ Important locations:
 - `/` is a public landing page describing the product (workflow, roles, features), separate from the authenticated app shell. `/login` is also public.
 - Every page ships a light and a dark theme (`useTheme` composable, class-based via Tailwind's `dark:` variant), toggled from an icon button in the sidebar header (authenticated pages) or the landing/login header. The choice is persisted to `localStorage` and defaults to light on first visit.
 - The UI is bilingual (Indonesian/English) via `vue-i18n`, toggled from an EN/ID button next to the theme toggle. The choice is persisted to `localStorage` (`pos_locale`) and defaults to Indonesian.
-- The visual design follows `DESIGN.md` at the repository root (a Coinbase-inspired system adapted for a cashier/POS context).
+- The visual design is a Coinbase-inspired system adapted for a cashier/POS context.
 
 ## Main Endpoints
 
