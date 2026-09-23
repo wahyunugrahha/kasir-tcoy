@@ -1,27 +1,33 @@
-# Kasir Tcoy
+# KasirTcuy
 
 Language: [Bahasa Indonesia](README.md) | English
 
-Kasir Tcoy is a Point of Sale monorepo consisting of a Laravel API backend and a Vue frontend for cashier operations, product management, shift settlement, and sales reporting.
+KasirTcuy is a Point of Sale monorepo consisting of a Laravel API backend and a Vue frontend for cashier operations, product management, shift settlement, and sales reporting. It ships with a public landing page, a light/dark theme, and a bilingual (Indonesian/English) UI.
 
 ## Overview
 
 This repository separates responsibilities between the API and the client:
 
 - `pos-backend` provides the REST API, token authentication with Laravel Sanctum, transactions, inventory movements, shift settlement, and reporting.
-- `pos-frontend` provides the cashier and admin interface built with Vue 3, Pinia, Vue Router, Chart.js, and Tailwind CSS v4.
+- `pos-frontend` provides the public landing page plus the cashier and admin interface, built with Vue 3, Pinia, Vue Router, vue-i18n, Chart.js, and Tailwind CSS v4.
 
 Main features currently visible in the codebase:
 
+- Public landing page describing the product, with its own light/dark and language toggle.
 - Bearer-token based login.
-- Cashier dashboard for fast checkout.
-- Hold order and recall order flow in the cart.
-- Print the latest receipt.
-- Product, category, customer, and user management.
+- Light/dark theme, togglable from the sidebar (and from the landing/login pages), defaulting to light.
+- Bilingual UI (Indonesian/English), togglable from the same place as the theme.
+- Cashier dashboard for fast checkout, with split payment across cash, QRIS, debit, credit card, e-wallet, and bank transfer.
+- Hold order and recall order flow (Order List page), stored server-side so any cashier can recall it.
+- Promo codes with minimum-purchase rules, and a customer loyalty points system redeemable at checkout.
+- Offline checkout queue: a transaction that fails to send while offline is queued locally and synced automatically once the connection returns.
+- Print the latest receipt, and re-print any past receipt from Transaction History.
+- Product, category, customer, and user management. Deleting a product soft-deletes it, so past transaction history stays intact.
 - Transaction history and transaction details.
-- Transaction void with automatic stock restoration.
+- Transaction void with automatic stock restoration, gated behind manager PIN approval for non-admin roles.
+- Bills page for tracking unpaid/partial (pay-later) transactions.
 - Shift settlement with physical cash vs system cash comparison.
-- Summary reports, daily sales reports, and top product analytics.
+- Summary reports, daily sales reports, top product analytics, cashier performance, profit by category, stock valuation, and void/refund reports, exportable to Excel.
 - Audit logs for selected actions.
 
 ## Tech Stack
@@ -40,10 +46,12 @@ Main features currently visible in the codebase:
 - Vue 3
 - Pinia
 - Vue Router
+- vue-i18n (Indonesian/English)
 - Axios
 - Chart.js and vue-chartjs
 - Tailwind CSS v4
 - Vite
+- SheetJS (`xlsx`) for native Excel export
 
 ## Repository Structure
 
@@ -56,11 +64,14 @@ Main features currently visible in the codebase:
 
 Important locations:
 
-- `pos-backend/routes/api.php` contains authentication, checkout, master data, transaction, shift, reporting, inventory, and audit log endpoints.
+- `pos-backend/routes/api.php` contains authentication, checkout, master data, transaction, shift, reporting, inventory, promo code, held order, and audit log endpoints.
 - `pos-backend/database/seeders/DatabaseSeeder.php` provides demo users, categories, products, customers, initial stock, and a sample transaction.
-- `pos-frontend/src/router/index.js` defines landing, login, POS, products, history, reports, settings, order list, bills, and settlement pages.
+- `pos-frontend/src/router/index.js` defines landing, login, dashboard, POS, products, history, manager approval, reports, settings, order list, bills, settlement, and promo codes pages.
 - `pos-frontend/src/stores` contains auth and cart state.
 - `pos-frontend/src/services/api.js` handles the API base URL and bearer token injection.
+- `pos-frontend/src/i18n/` holds the vue-i18n setup and the Indonesian/English translation dictionaries.
+- `pos-frontend/src/composables/useTheme.js` holds the light/dark theme toggle, persisted to `localStorage`.
+- `DESIGN.md` (repo root) documents the app's design system (Coinbase-inspired, adapted for a cashier/POS context).
 
 ## Feature Modules
 
@@ -73,37 +84,65 @@ Important locations:
 
 ### POS / Checkout
 
-- Loads product catalog from the backend.
+- Loads product catalog from the backend, with grid or list view.
 - Adds items to the cart with stock validation.
-- Supports `cash`, `qris`, and `debit` payment methods.
-- Calculates subtotal, discount, tax, grand total, amount paid, and change.
+- Supports `cash`, `qris`, `debit`, `credit_card`, `e_wallet`, and `bank_transfer` payment methods, including split payment across several methods at once.
+- Applies a promo code or redeems customer loyalty points against the total.
+- Calculates subtotal, discount, tax, grand total, amount paid, and change, with quick-cash suggestions scaled to real IDR note denominations.
 - Stores the transaction and deducts stock atomically in the backend.
-- Supports printing the latest receipt.
+- If the request fails because the device is offline, the transaction is queued locally and retried automatically once the connection returns.
+- Supports printing the latest receipt, and re-printing any past receipt from Transaction History.
 
 ### Order Management
 
-- Hold cart to postpone an order.
-- Recall held orders into the active cart.
+- Hold cart to postpone an order (stored server-side, in the Order List page).
+- Recall a held order into the active cart from any cashier device.
 - Sync cart quantities with the latest stock data.
+
+### Promo Codes and Loyalty Points
+
+- Admin-managed promo codes with a minimum-purchase requirement and a usage limit.
+- Customers accrue points on purchase and can redeem them against a later transaction's total.
 
 ### Products and Inventory
 
-- Endpoints for listing, viewing, creating, updating, and deleting products.
+- Endpoints for listing, viewing, creating, updating, and deleting products, with grid or list view in the admin UI.
+- Deleting a product soft-deletes it (`deleted_at`), so past transaction history and reports stay intact; a soft-deleted product can no longer be checked out or moved in inventory.
 - Inventory movements are recorded for stock in and stock out.
+- A configurable reorder point per product drives the low-stock alert shown on the Dashboard and Kasir catalog.
 - Voiding a transaction restores stock and creates a new inventory movement.
+
+### Manager Approval
+
+- Void and refund by a non-admin (cashier) require a manager PIN, verified against `POST /api/v1/managers/verify-pin` and time-limited once granted.
+- A manager can change their own PIN from the Settings page.
 
 ### Shift Settlement
 
 - Open a new shift with opening cash.
+- Log cash movements in/out during the shift.
 - Close a shift with physical cash input.
 - Calculate cash differences.
 - Store shift history.
 
+### Bills (Pay-Later)
+
+- Lists unpaid/partial transactions with the amount received and remaining balance.
+- Lets a cashier take a further payment against a bill until it is fully paid.
+
 ### Reporting
 
 - Today's and current month's sales summary.
-- Daily sales chart.
-- Top products chart.
+- Daily sales chart and top products chart.
+- Cashier performance, profit by category, stock valuation, and void/refund reports.
+- Every report and the transaction history are exportable to a multi-sheet Excel workbook.
+
+## Landing Page, Theming, and Localization
+
+- `/` is a public landing page describing the product (workflow, roles, features), separate from the authenticated app shell. `/login` is also public.
+- Every page ships a light and a dark theme (`useTheme` composable, class-based via Tailwind's `dark:` variant), toggled from an icon button in the sidebar header (authenticated pages) or the landing/login header. The choice is persisted to `localStorage` and defaults to light on first visit.
+- The UI is bilingual (Indonesian/English) via `vue-i18n`, toggled from an EN/ID button next to the theme toggle. The choice is persisted to `localStorage` (`pos_locale`) and defaults to Indonesian.
+- The visual design follows `DESIGN.md` at the repository root (a Coinbase-inspired system adapted for a cashier/POS context).
 
 ## Main Endpoints
 
@@ -128,12 +167,20 @@ All endpoints below are under the `/api/v1` prefix and protected by `auth:sanctu
 - `categories`
 - `products`
 - `customers`
-- `transactions`
+- `transactions` (`pay`, `void`, `refund` sub-actions)
 - `inventory-movements`
-- `shifts`
+- `held-orders`
+- `promo-codes` (plus `promo-codes/validate`)
+- `shifts` (plus `cash-movements`, `close`)
+- `managers` (plus `managers/verify-pin`)
 - `reports/summary`
 - `reports/sales-by-date`
 - `reports/top-products`
+- `reports/cashier-performance`
+- `reports/profit-by-category`
+- `reports/stock-valuation`
+- `reports/void-refunds`
+- `reports/low-stock`
 - `audit-logs`
 
 Some endpoints are restricted by the `admin` role middleware, while cashier users can access operational cashier and transaction flows as needed.
@@ -296,7 +343,7 @@ Areas that look ready for extension:
 - richer API request/response documentation.
 - broader test coverage for POS and settlement flows.
 - a production deployment guide.
-- UI screenshots for landing, cashier, reports, and settlement pages.
+- finishing the Indonesian/English translation coverage across every authenticated page (currently complete on the landing page, login, and sidebar navigation).
 
 ## Notes
 
@@ -307,26 +354,3 @@ Areas that look ready for extension:
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
-
-*** Add File: d:/ProjectNganggur/LICENSE
-MIT License
-
-Copyright (c) 2026 Kasir Tcoy
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.

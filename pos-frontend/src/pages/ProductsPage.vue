@@ -1,6 +1,10 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
+import { useEscToClose } from '../composables/useEscToClose'
+
+const { t } = useI18n()
 
 const products = ref([])
 const categories = ref([])
@@ -10,11 +14,13 @@ const error = ref('')
 const successMsg = ref('')
 const showForm = ref(false)
 const editingId = ref(null)
+const viewMode = ref('grid')
+
+useEscToClose(showForm, () => { showForm.value = false })
 const BACKEND_URL = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') ?? 'http://127.0.0.1:8000'
-const LOW_STOCK_THRESHOLD = 5
 
 const lowStockProducts = computed(() =>
-  products.value.filter((p) => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD)
+  products.value.filter((p) => p.stock > 0 && p.stock <= Number(p.min_stock ?? 5))
 )
 
 const form = ref({
@@ -24,6 +30,7 @@ const form = ref({
   cost_price: '',
   selling_price: '',
   stock: 0,
+  min_stock: 5,
   description: '',
   image: null,
 })
@@ -41,7 +48,7 @@ async function loadData() {
     products.value = prodRes.data.data ?? []
     categories.value = catRes.data.data ?? catRes.data ?? []
   } catch {
-    error.value = 'Gagal memuat data.'
+    error.value = t('products.loadError')
   } finally {
     loading.value = false
   }
@@ -49,7 +56,7 @@ async function loadData() {
 
 function openCreate() {
   editingId.value = null
-  form.value = { category_id: '', sku: '', name: '', cost_price: '', selling_price: '', stock: 0, description: '', image: null }
+  form.value = { category_id: '', sku: '', name: '', cost_price: '', selling_price: '', stock: 0, min_stock: 5, description: '', image: null }
   imagePreview.value = null
   showForm.value = true
 }
@@ -63,6 +70,7 @@ function openEdit(product) {
     cost_price: product.cost_price,
     selling_price: product.selling_price,
     stock: product.stock,
+    min_stock: product.min_stock ?? 5,
     description: product.description ?? '',
     image: null,
   }
@@ -96,6 +104,7 @@ async function saveProduct() {
     fd.append('cost_price', form.value.cost_price)
     fd.append('selling_price', form.value.selling_price)
     fd.append('stock', form.value.stock)
+    fd.append('min_stock', form.value.min_stock)
     fd.append('description', form.value.description)
     if (form.value.image) {
       fd.append('image', form.value.image)
@@ -104,10 +113,10 @@ async function saveProduct() {
     if (editingId.value) {
       fd.append('_method', 'PUT')
       await api.post(`/v1/products/${editingId.value}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      successMsg.value = 'Produk berhasil diperbarui!'
+      successMsg.value = t('products.updateSuccess')
     } else {
       await api.post('/v1/products', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      successMsg.value = 'Produk berhasil ditambahkan!'
+      successMsg.value = t('products.createSuccess')
     }
 
     showForm.value = false
@@ -117,7 +126,7 @@ async function saveProduct() {
     if (errData?.errors) {
       error.value = Object.values(errData.errors).flat().join(', ')
     } else {
-      error.value = errData?.message ?? 'Gagal menyimpan produk.'
+      error.value = errData?.message ?? t('products.saveError')
     }
   } finally {
     submitting.value = false
@@ -125,12 +134,12 @@ async function saveProduct() {
 }
 
 async function deleteProduct(id) {
-  if (!confirm('Hapus produk ini?')) return
+  if (!confirm(t('products.confirmDelete'))) return
   try {
     await api.delete(`/v1/products/${id}`)
     await loadData()
-  } catch {
-    error.value = 'Gagal menghapus produk.'
+  } catch (e) {
+    error.value = e.response?.data?.message ?? t('products.deleteError')
   }
 }
 
@@ -146,12 +155,38 @@ onMounted(loadData)
     <!-- Header -->
     <div class="mb-5 flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-slate-800">Manajemen Produk</h1>
-        <p class="text-sm text-slate-500">{{ products.length }} produk terdaftar</p>
+        <h1 class="text-xl font-bold text-ink">{{ t('products.title') }}</h1>
+        <p class="text-sm text-ink-faint">{{ t('products.countRegistered', { count: products.length }) }}</p>
       </div>
-      <button class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500" @click="openCreate">
-        + Tambah Produk
-      </button>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5">
+          <button
+            type="button"
+            :aria-label="t('products.gridView')"
+            class="grid h-8 w-8 place-items-center rounded-md transition"
+            :class="viewMode === 'grid' ? 'bg-brand-600 text-white' : 'text-ink-soft hover:bg-surface-2'"
+            @click="viewMode = 'grid'"
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4h7v7H4V4zm9 0h7v7h-7V4zm0 9h7v7h-7v-7zM4 13h7v7H4v-7z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            :aria-label="t('products.listView')"
+            class="grid h-8 w-8 place-items-center rounded-md transition"
+            :class="viewMode === 'list' ? 'bg-brand-600 text-white' : 'text-ink-soft hover:bg-surface-2'"
+            @click="viewMode = 'list'"
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+        </div>
+        <button class="rounded-full bg-brand-600 active:scale-95 transition-transform px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500" @click="openCreate">
+          + {{ t('products.addProduct') }}
+        </button>
+      </div>
     </div>
 
     <div v-if="error" class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>
@@ -159,61 +194,119 @@ onMounted(loadData)
 
     <!-- Low stock alert banner -->
     <div v-if="lowStockProducts.length > 0" class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-      <p class="font-semibold">&#9888; {{ lowStockProducts.length }} produk hampir habis (stok &le; {{ LOW_STOCK_THRESHOLD }})</p>
-      <p class="mt-1 text-xs">{{ lowStockProducts.map((p) => `${p.name} (${p.stock})`).join(', ') }}</p>
+      <p class="font-semibold">&#9888; {{ t('products.lowStockBanner', { count: lowStockProducts.length }) }}</p>
+      <p class="mt-1 text-xs">{{ lowStockProducts.map((p) => `${p.name} (${p.stock}/${p.min_stock})`).join(', ') }}</p>
     </div>
 
     <!-- Product grid -->
-    <div v-if="loading" class="py-12 text-center text-slate-500">Memuat produk...</div>
+    <div v-if="loading" class="py-12 text-center text-ink-faint">{{ t('products.loading') }}</div>
 
-    <div v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div v-else-if="viewMode === 'grid'" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       <div
         v-for="product in products"
         :key="product.id"
-        class="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+        class="group overflow-hidden rounded-2xl border border-line-soft bg-surface shadow-sm transition-shadow hover:shadow-md"
       >
         <!-- Product image -->
-        <div class="relative h-40 bg-slate-100">
+        <div class="relative h-40 bg-surface-2">
           <img
             v-if="product.image_url"
             :src="resolveImageUrl(product.image_url)"
             :alt="product.name"
             class="h-full w-full object-cover"
           />
-          <div v-else class="flex h-full items-center justify-center text-4xl text-slate-300">📦</div>
+          <div v-else class="flex h-full items-center justify-center text-slate-300">
+            <svg class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7l8-4 8 4-8 4-8-4zm0 0v10l8 4 8-4V7" />
+            </svg>
+          </div>
           <span
             class="absolute right-2 top-2 rounded-full px-2 py-0.5 text-xs font-semibold shadow-sm"
             :class="product.stock <= 0
               ? 'bg-rose-500 text-white'
-              : product.stock <= 5
+              : product.stock <= Number(product.min_stock ?? 5)
                 ? 'bg-amber-400 text-white'
-                : 'bg-white/80 text-slate-600'"
+                : 'bg-surface/80 text-ink-soft'"
           >
-            Stok: {{ product.stock }}
+            {{ t('products.stockLabel', { stock: product.stock }) }}
           </span>
         </div>
 
         <!-- Product info -->
         <div class="p-4">
-          <p class="font-semibold text-slate-800">{{ product.name }}</p>
-          <p class="text-xs text-slate-400">{{ product.sku }} · {{ product.category?.name }}</p>
-          <p class="mt-1.5 text-base font-bold text-indigo-600">{{ formatCurrency(product.selling_price) }}</p>
+          <p class="font-semibold text-ink">{{ product.name }}</p>
+          <p class="text-xs text-ink-faint">{{ product.sku }} · {{ product.category?.name }}</p>
+          <p class="mt-1.5 text-base font-bold text-brand-600">{{ formatCurrency(product.selling_price) }}</p>
 
           <!-- Action buttons -->
           <div class="mt-3 flex gap-2">
             <button
-              class="flex-1 rounded-lg border border-slate-300 py-1.5 text-xs font-medium hover:bg-slate-50"
+              class="flex-1 rounded-lg border border-line py-1.5 text-xs font-medium hover:bg-surface-2"
               @click="openEdit(product)"
             >
-              Edit
+              {{ t('products.edit') }}
             </button>
             <button
-              class="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-500 hover:bg-rose-50"
+              class="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950"
               @click="deleteProduct(product.id)"
             >
-              Hapus
+              {{ t('products.delete') }}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="space-y-2">
+      <div
+        v-for="product in products"
+        :key="product.id"
+        class="flex items-center gap-3 rounded-xl border border-line-soft bg-surface p-3 shadow-sm"
+      >
+        <div class="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-surface-2">
+          <img
+            v-if="product.image_url"
+            :src="resolveImageUrl(product.image_url)"
+            :alt="product.name"
+            class="h-full w-full object-cover"
+          />
+          <div v-else class="flex h-full items-center justify-center text-slate-300">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7l8-4 8 4-8 4-8-4zm0 0v10l8 4 8-4V7" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="min-w-0 flex-1">
+          <p class="truncate font-semibold text-ink">{{ product.name }}</p>
+          <p class="text-xs text-ink-faint">{{ product.sku }} · {{ product.category?.name }}</p>
+          <p class="text-sm font-bold text-brand-600">{{ formatCurrency(product.selling_price) }}</p>
+        </div>
+
+        <span
+          class="shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold shadow-sm"
+          :class="product.stock <= 0
+            ? 'bg-rose-500 text-white'
+            : product.stock <= Number(product.min_stock ?? 5)
+              ? 'bg-amber-400 text-white'
+              : 'bg-surface-2 text-ink-soft'"
+        >
+          {{ t('products.stockLabel', { stock: product.stock }) }}
+        </span>
+
+        <div class="flex shrink-0 gap-2">
+          <button
+            class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium hover:bg-surface-2"
+            @click="openEdit(product)"
+          >
+            {{ t('products.edit') }}
+          </button>
+          <button
+            class="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950"
+            @click="deleteProduct(product.id)"
+          >
+            {{ t('products.delete') }}
+          </button>
         </div>
       </div>
     </div>
@@ -221,79 +314,93 @@ onMounted(loadData)
     <!-- Modal form -->
     <Transition name="fade">
       <div v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-        <div class="w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl max-h-[90vh]">
+        <div role="dialog" aria-modal="true" aria-labelledby="product-form-title" class="w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-6 shadow-2xl max-h-[90vh]">
           <div class="mb-5 flex items-center justify-between">
-            <h2 class="text-lg font-bold text-slate-800">{{ editingId ? 'Edit Produk' : 'Tambah Produk' }}</h2>
-            <button class="text-slate-400 hover:text-slate-600" @click="showForm = false">✕</button>
+            <h2 id="product-form-title" class="text-lg font-bold text-ink">{{ editingId ? t('products.editTitle') : t('products.addTitle') }}</h2>
+            <button :aria-label="t('products.close')" class="text-ink-faint hover:text-ink-soft" @click="showForm = false">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           <div class="space-y-4 text-sm">
             <!-- Image upload -->
             <div>
-              <label class="mb-1 block text-slate-600">Gambar Produk</label>
+              <label class="mb-1 block text-ink-soft">{{ t('products.productImage') }}</label>
               <div class="flex gap-4">
-                <div class="h-20 w-20 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                <div class="h-20 w-20 overflow-hidden rounded-lg border border-line-soft bg-surface-2">
                   <img v-if="imagePreview" :src="imagePreview" class="h-full w-full object-cover" />
-                  <div v-else class="flex h-full items-center justify-center text-2xl text-slate-300">📷</div>
+                  <div v-else class="flex h-full items-center justify-center text-slate-300">
+                    <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h1.5l1-1.5h9l1 1.5H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <circle cx="12" cy="13.5" r="3.2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </div>
                 </div>
                 <div>
                   <input type="file" accept="image/*" class="text-xs" @change="handleImageChange" />
-                  <p class="mt-1 text-xs text-slate-400">Max 2MB, format JPG/PNG/WebP</p>
+                  <p class="mt-1 text-xs text-ink-faint">{{ t('products.imageHint') }}</p>
                 </div>
               </div>
             </div>
 
             <label class="block">
-              <span class="mb-1 block text-slate-600">Kategori *</span>
-              <select v-model="form.category_id" class="w-full rounded-lg border border-slate-300 px-3 py-2">
-                <option value="">-- Pilih Kategori --</option>
+              <span class="mb-1 block text-ink-soft">{{ t('products.category') }}</span>
+              <select v-model="form.category_id" class="w-full rounded-lg border border-line px-3 py-2">
+                <option value="">{{ t('products.selectCategory') }}</option>
                 <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
               </select>
             </label>
 
             <div class="grid grid-cols-2 gap-3">
               <label class="block">
-                <span class="mb-1 block text-slate-600">SKU *</span>
-                <input v-model="form.sku" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                <span class="mb-1 block text-ink-soft">{{ t('products.sku') }}</span>
+                <input v-model="form.sku" type="text" class="w-full rounded-lg border border-line px-3 py-2" />
               </label>
               <label class="block">
-                <span class="mb-1 block text-slate-600">Stok</span>
-                <input v-model.number="form.stock" type="number" min="0" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                <span class="mb-1 block text-ink-soft">{{ t('products.stock') }}</span>
+                <input v-model.number="form.stock" type="number" min="0" class="w-full rounded-lg border border-line px-3 py-2" />
               </label>
             </div>
 
             <label class="block">
-              <span class="mb-1 block text-slate-600">Nama Produk *</span>
-              <input v-model="form.name" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <span class="mb-1 block text-ink-soft">{{ t('products.reorderPoint') }}</span>
+              <input v-model.number="form.min_stock" type="number" min="0" class="w-full rounded-lg border border-line px-3 py-2" />
+            </label>
+
+            <label class="block">
+              <span class="mb-1 block text-ink-soft">{{ t('products.productName') }}</span>
+              <input v-model="form.name" type="text" class="w-full rounded-lg border border-line px-3 py-2" />
             </label>
 
             <div class="grid grid-cols-2 gap-3">
               <label class="block">
-                <span class="mb-1 block text-slate-600">Harga Modal *</span>
-                <input v-model.number="form.cost_price" type="number" min="0" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                <span class="mb-1 block text-ink-soft">{{ t('products.costPrice') }}</span>
+                <input v-model.number="form.cost_price" type="number" min="0" class="w-full rounded-lg border border-line px-3 py-2" />
               </label>
               <label class="block">
-                <span class="mb-1 block text-slate-600">Harga Jual *</span>
-                <input v-model.number="form.selling_price" type="number" min="0" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                <span class="mb-1 block text-ink-soft">{{ t('products.sellingPrice') }}</span>
+                <input v-model.number="form.selling_price" type="number" min="0" class="w-full rounded-lg border border-line px-3 py-2" />
               </label>
             </div>
 
             <label class="block">
-              <span class="mb-1 block text-slate-600">Deskripsi</span>
-              <textarea v-model="form.description" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2"></textarea>
+              <span class="mb-1 block text-ink-soft">{{ t('products.description') }}</span>
+              <textarea v-model="form.description" rows="2" class="w-full rounded-lg border border-line px-3 py-2"></textarea>
             </label>
           </div>
 
           <div class="mt-5 flex gap-3">
-            <button class="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm hover:bg-slate-50" @click="showForm = false">
-              Batal
+            <button class="flex-1 rounded-lg border border-line py-2.5 text-sm hover:bg-surface-2" @click="showForm = false">
+              {{ t('products.cancel') }}
             </button>
             <button
               :disabled="submitting"
-              class="flex-1 rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+              class="flex-1 rounded-full bg-brand-600 active:scale-95 transition-transform py-2.5 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
               @click="saveProduct"
             >
-              {{ submitting ? 'Menyimpan...' : (editingId ? 'Simpan Perubahan' : 'Tambah Produk') }}
+              {{ submitting ? t('products.saving') : (editingId ? t('products.saveChanges') : t('products.addProduct')) }}
             </button>
           </div>
         </div>

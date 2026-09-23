@@ -14,6 +14,7 @@ class CheckoutController extends Controller
     public function store(StoreTransactionRequest $request): JsonResponse
     {
         $validated = $request->validated();
+        $validated['user_id'] = $request->user()->id;
 
         $transaction = $this->transactionService->create(
             validated: $validated,

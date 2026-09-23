@@ -3,13 +3,31 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Product;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
+use App\Models\TransactionRefund;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
+    /**
+     * GET /api/v1/reports/low-stock
+     * Products whose stock has dropped to or below their configured reorder threshold.
+     */
+    public function lowStock(): JsonResponse
+    {
+        $products = Product::query()
+            ->with('category:id,name')
+            ->whereColumn('stock', '<=', 'min_stock')
+            ->orderBy('stock')
+            ->get(['id', 'category_id', 'sku', 'name', 'stock', 'min_stock']);
+
+        return response()->json($products);
+    }
+
     /**
      * GET /api/v1/reports/sales-by-date
      * Query params: month (YYYY-MM), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD)
@@ -95,6 +113,7 @@ class ReportController extends Controller
     public function summary(): JsonResponse
     {
         $today = now()->toDateString();
+        $yesterday = now()->subDay()->toDateString();
 
         $dailyRevenue = Transaction::where('is_voided', false)->whereDate('created_at', $today)->sum('grand_total');
         $dailyCount = Transaction::where('is_voided', false)->whereDate('created_at', $today)->count();
@@ -107,6 +126,22 @@ class ReportController extends Controller
             $q->where('is_voided', false);
             $q->whereDate('created_at', $today);
         })->selectRaw('COALESCE(SUM(cogs_snapshot * quantity), 0) as total_cogs')->value('total_cogs');
+
+        // Yesterday's figures exist only to compute a real day-over-day delta for the
+        // dashboard stat cards — never fabricate a percentage without a real comparison point.
+        $yesterdayRevenue = Transaction::where('is_voided', false)->whereDate('created_at', $yesterday)->sum('grand_total');
+        $yesterdayCount = Transaction::where('is_voided', false)->whereDate('created_at', $yesterday)->count();
+        $yesterdayItems = TransactionDetail::whereHas('transaction', function ($q) use ($yesterday) {
+            $q->where('is_voided', false);
+            $q->whereDate('created_at', $yesterday);
+        })->sum('quantity');
+
+        $paymentMethods = Transaction::where('is_voided', false)
+            ->whereDate('created_at', $today)
+            ->selectRaw('payment_method, COUNT(*) as count, SUM(grand_total) as total')
+            ->groupBy('payment_method')
+            ->orderByDesc('total')
+            ->get();
 
         $monthRevenue = Transaction::where('is_voided', false)
             ->whereYear('created_at', now()->year)
@@ -124,11 +159,164 @@ class ReportController extends Controller
                 'transactions' => (int) $dailyCount,
                 'items_sold' => (int) $dailyItems,
                 'gross_profit' => (float) $dailyRevenue - (float) $dailyCogs,
+                'average_order_value' => $dailyCount > 0 ? (float) $dailyRevenue / $dailyCount : 0.0,
+                'payment_methods' => $paymentMethods,
+            ],
+            'yesterday' => [
+                'revenue' => (float) $yesterdayRevenue,
+                'transactions' => (int) $yesterdayCount,
+                'items_sold' => (int) $yesterdayItems,
+                'average_order_value' => $yesterdayCount > 0 ? (float) $yesterdayRevenue / $yesterdayCount : 0.0,
             ],
             'month' => [
                 'revenue' => (float) $monthRevenue,
                 'gross_profit' => (float) $monthRevenue - (float) $monthCogs,
             ],
         ]);
+    }
+
+    /**
+     * GET /api/v1/reports/cashier-performance
+     * Sales grouped by the cashier/admin who processed them.
+     */
+    public function cashierPerformance(Request $request): JsonResponse
+    {
+        $this->validateDateRange($request);
+
+        $rows = $this->applyDateRange(
+            Transaction::query()->where('is_voided', false),
+            $request,
+            'transactions.created_at'
+        )
+            ->join('users', 'users.id', '=', 'transactions.user_id')
+            ->selectRaw(
+                'users.id as user_id, users.name as user_name, '.
+                'COUNT(*) as transaction_count, SUM(transactions.grand_total) as total_sales'
+            )
+            ->groupBy('users.id', 'users.name')
+            ->orderByDesc('total_sales')
+            ->get();
+
+        return response()->json($rows);
+    }
+
+    /**
+     * GET /api/v1/reports/profit-by-category
+     * Revenue, COGS and gross profit grouped by product category.
+     */
+    public function profitByCategory(Request $request): JsonResponse
+    {
+        $this->validateDateRange($request);
+
+        $query = TransactionDetail::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
+            ->join('products', 'products.id', '=', 'transaction_details.product_id')
+            ->join('categories', 'categories.id', '=', 'products.category_id')
+            ->where('transactions.is_voided', false);
+
+        $this->applyDateRange($query, $request, 'transactions.created_at');
+
+        $rows = $query
+            ->selectRaw(
+                'categories.id as category_id, categories.name as category_name, '.
+                'SUM(transaction_details.subtotal) as revenue, '.
+                'SUM(transaction_details.cogs_snapshot * transaction_details.quantity) as cogs'
+            )
+            ->groupBy('categories.id', 'categories.name')
+            ->orderByDesc('revenue')
+            ->get()
+            ->map(function ($row) {
+                $row->revenue = (float) $row->revenue;
+                $row->cogs = (float) $row->cogs;
+                $row->gross_profit = $row->revenue - $row->cogs;
+
+                return $row;
+            });
+
+        return response()->json($rows);
+    }
+
+    /**
+     * GET /api/v1/reports/stock-valuation
+     * Current inventory value (stock x cost price) grouped by category — a point-in-time
+     * snapshot, so it takes no date range.
+     */
+    public function stockValuation(): JsonResponse
+    {
+        $rows = Product::query()
+            ->join('categories', 'categories.id', '=', 'products.category_id')
+            ->selectRaw(
+                'categories.id as category_id, categories.name as category_name, '.
+                'SUM(products.stock) as total_units, '.
+                'SUM(products.stock * products.cost_price) as stock_value'
+            )
+            ->groupBy('categories.id', 'categories.name')
+            ->orderByDesc('stock_value')
+            ->get()
+            ->map(function ($row) {
+                $row->total_units = (int) $row->total_units;
+                $row->stock_value = (float) $row->stock_value;
+
+                return $row;
+            });
+
+        return response()->json([
+            'by_category' => $rows,
+            'total_value' => (float) $rows->sum('stock_value'),
+        ]);
+    }
+
+    /**
+     * GET /api/v1/reports/void-refunds
+     * Voided transactions and partial refunds in a date range, for loss-prevention review.
+     */
+    public function voidRefunds(Request $request): JsonResponse
+    {
+        $this->validateDateRange($request);
+
+        $voided = $this->applyDateRange(
+            Transaction::query()->where('is_voided', true),
+            $request,
+            'voided_at'
+        )
+            ->with(['voidedBy:id,name', 'user:id,name'])
+            ->orderByDesc('voided_at')
+            ->get(['id', 'invoice_number', 'user_id', 'grand_total', 'void_reason', 'voided_at', 'voided_by']);
+
+        $refunds = $this->applyDateRange(
+            TransactionRefund::query(),
+            $request,
+            'transaction_refunds.created_at'
+        )
+            ->with(['transaction:id,invoice_number', 'processor:id,name'])
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'voided_transactions' => $voided,
+            'refunds' => $refunds,
+            'total_voided' => (float) $voided->sum('grand_total'),
+            'total_refunded' => (float) $refunds->sum('refund_total'),
+        ]);
+    }
+
+    private function validateDateRange(Request $request): void
+    {
+        $request->validate([
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
+        ]);
+    }
+
+    private function applyDateRange(Builder $query, Request $request, string $column = 'created_at'): Builder
+    {
+        if ($request->filled('start_date')) {
+            $query->whereDate($column, '>=', $request->string('start_date'));
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate($column, '<=', $request->string('end_date'));
+        }
+
+        return $query;
     }
 }

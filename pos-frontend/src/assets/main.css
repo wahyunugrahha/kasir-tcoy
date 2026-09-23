@@ -1,1 +1,77 @@
 @import "tailwindcss";
+
+/* Manual (class-based) dark mode: toggled by the `useTheme` composable adding/removing
+ * `.dark` on <html>, not just OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Smooth-scrolls anchor jumps (e.g. Landing's "Alur Kerja"/"Fitur" nav links)
+ * instead of an instant cut. */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/*
+ * Brand tokens from DESIGN.md (Coinbase-inspired system, adapted for KasirTcuy).
+ * `brand` mirrors Tailwind's standard 50-900 scale so every existing `brand-*`
+ * utility keeps working unchanged — 600 is Coinbase Blue (#0052ff), the single
+ * primary CTA fill; 700 is the darker text/link-accent shade; 900 is the fixed
+ * dark shell color used by the sidebar regardless of the app's light/dark theme.
+ * `gold` is reserved for the loyalty-points feature only, per the source system's
+ * "a small illustrative accent is fine, it just can't compete with the one brand
+ * color" precedent (Coinbase's own sparing use of accent-yellow).
+ */
+@theme {
+  /* CoinbaseMono substitute (DESIGN.md): tabular figures for money/invoice display only. */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-brand-50: #eaf1ff;
+  --color-brand-100: #cddcff;
+  --color-brand-200: #9bb8ff;
+  --color-brand-300: #6690ff;
+  --color-brand-400: #3370ff;
+  --color-brand-500: #1a5fff;
+  --color-brand-600: #0052ff;
+  --color-brand-700: #003ecc;
+  --color-brand-800: #002e99;
+  --color-brand-900: #0a0b0d;
+
+  --color-gold-100: #faf6ee;
+  --color-gold-400: #cba258;
+  --color-gold-700: #8a6a1f;
+
+  /* Semantic surface/text/border tokens — light values here, dark overrides below.
+   * Every component uses these instead of raw slate/white so theming needs no
+   * `dark:` variant sprinkled on every element. */
+  --color-app: #f7f7f7;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef0f3;
+  --color-ink: #0a0b0d;
+  --color-ink-soft: #5b616e;
+  --color-ink-faint: #7c828a;
+  --color-line: #d5d9df;
+  --color-line-soft: #e5e8ec;
+}
+
+.dark {
+  --color-brand-50: #12203d;
+  --color-brand-100: #1b2d52;
+  --color-brand-200: #22407a;
+  --color-brand-300: #3b5bdb;
+  --color-brand-700: #6690ff;
+  --color-brand-800: #9bb8ff;
+
+  --color-app: #0a0b0d;
+  --color-surface: #16181c;
+  --color-surface-2: #1f2227;
+  --color-ink: #f5f6f7;
+  --color-ink-soft: #a8acb3;
+  --color-ink-faint: #7c828a;
+  --color-line: #2a2d33;
+  --color-line-soft: #23262b;
+}

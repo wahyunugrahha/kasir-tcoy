@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\Customer;
 use App\Models\InventoryMovement;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\PromoCode;
 use App\Models\Shift;
 use App\Models\Transaction;
 use App\Models\User;
@@ -17,6 +19,12 @@ use Illuminate\Validation\ValidationException;
 
 class TransactionService
 {
+    /** Rupiah spent per 1 loyalty point earned. */
+    public const POINTS_EARN_RATE = 10000;
+
+    /** Rupiah discount per 1 loyalty point redeemed. */
+    public const POINTS_REDEEM_VALUE = 100;
+
     /** Cached once per process — schema does not change at runtime. */
     private static ?bool $productVariantsTableExists = null;
 
@@ -28,9 +36,21 @@ class TransactionService
             ]);
         }
 
-        return DB::transaction(function () use ($validated, $movementNotes) {
-            return $this->createInsideTransaction($validated, $movementNotes);
-        });
+        // ponytail: first invoice of a day has no prior row to lockForUpdate() on, so two
+        // concurrent checkouts can compute the same sequence; retry on the resulting unique
+        // constraint clash instead of adding a dedicated counter table.
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            try {
+                return DB::transaction(function () use ($validated, $movementNotes) {
+                    return $this->createInsideTransaction($validated, $movementNotes);
+                });
+            } catch (\Illuminate\Database\QueryException $e) {
+                $isInvoiceCollision = str_contains(strtolower($e->getMessage()), 'invoice_number');
+                if (! $isInvoiceCollision || $attempt === 5) {
+                    throw $e;
+                }
+            }
+        }
     }
 
     private function createInsideTransaction(array $validated, string $movementNotes): Transaction
@@ -198,12 +218,18 @@ class TransactionService
 
             $cartDiscountAmount = $this->resolveDiscountAmount($discountType, $discountValue, $preCartTotal);
 
+            $promoCode = null;
+            $promoDiscountAmount = 0.0;
+            if (! empty($validated['promo_code'])) {
+                [$promoCode, $promoDiscountAmount] = $this->resolvePromoCode((string) $validated['promo_code'], $preCartTotal);
+            }
+
             $manualTax = (float) ($validated['tax'] ?? 0);
             $taxRate = $lineTaxRate;
             $taxIncluded = (bool) ($validated['tax_included'] ?? false);
 
             $taxAmount = $taxTotal;
-            $grandTotal = max(0, $preCartTotal - $cartDiscountAmount);
+            $grandTotal = max(0, $preCartTotal - $cartDiscountAmount - $promoDiscountAmount);
 
             if ($summaryTaxPercent !== null) {
                 $taxRate = $summaryTaxPercent;
@@ -214,6 +240,16 @@ class TransactionService
                 $taxAmount += $manualTax;
                 $grandTotal += $manualTax;
             }
+
+            $customer = null;
+            if (! empty($validated['customer_id'])) {
+                // Lock now so a concurrent checkout for the same customer can't redeem/earn
+                // against a stale points balance.
+                $customer = Customer::query()->whereKey($validated['customer_id'])->lockForUpdate()->first();
+            }
+
+            $pointsRedeemed = $this->resolvePointsRedemption($customer, (int) ($validated['redeem_points'] ?? 0), $grandTotal);
+            $grandTotal = max(0, $grandTotal - ($pointsRedeemed * self::POINTS_REDEEM_VALUE));
 
             $this->guardManualDiscountApproval(
                 userId: (int) $validated['user_id'],
@@ -233,7 +269,13 @@ class TransactionService
             $rawPaid = (float) $payments->sum('amount');
             $amountPaid = min($rawPaid, $grandTotal);
             $cashChange = max(0, $cashReceived - $grandTotal);
-            $paymentStatus = $amountPaid <= 0 ? 'unpaid' : ($amountPaid < $grandTotal ? 'partial' : 'paid');
+            $paymentStatus = $grandTotal <= 0
+                ? 'paid'
+                : ($amountPaid <= 0 ? 'unpaid' : ($amountPaid < $grandTotal ? 'partial' : 'paid'));
+
+            // Points are earned on money actually received, not the invoiced total, so a
+            // partially-paid sale only earns for the part that's actually been paid.
+            $pointsEarned = $customer ? intdiv((int) $amountPaid, self::POINTS_EARN_RATE) : 0;
 
             $transaction = Transaction::create([
                 'invoice_number' => $invoiceNumber,
@@ -249,12 +291,24 @@ class TransactionService
                 'tax_rate' => $taxRate,
                 'tax_included' => $taxIncluded,
                 'grand_total' => $grandTotal,
+                'promo_code' => $promoCode?->code,
+                'promo_discount_amount' => $promoDiscountAmount,
                 'payment_method' => $paymentMethod,
                 'payment_status' => $paymentStatus,
                 'amount_paid' => $amountPaid,
                 'cash_received' => $cashReceived,
                 'cash_change' => $cashChange,
+                'points_earned' => $pointsEarned,
+                'points_redeemed' => $pointsRedeemed,
             ]);
+
+            if ($customer) {
+                $customer->update(['points' => $customer->points + $pointsEarned - $pointsRedeemed]);
+            }
+
+            if ($promoCode) {
+                $promoCode->increment('times_used');
+            }
 
             foreach ($detailPayload as $detail) {
                 $modifiers = $detail['modifiers'];
@@ -317,6 +371,11 @@ class TransactionService
 
     private function normalizePayments(array $validated, float $grandTotal): \Illuminate\Support\Collection
     {
+        // A bill fully covered by discounts/points redemption needs no payment at all.
+        if ($grandTotal <= 0) {
+            return collect();
+        }
+
         $payments = collect($validated['payments'] ?? []);
 
         if ($payments->isEmpty()) {
@@ -398,6 +457,53 @@ class TransactionService
                 'manager_pin' => 'PIN manager tidak valid.',
             ]);
         }
+    }
+
+    private function resolvePointsRedemption(?Customer $customer, int $requestedPoints, float $grandTotal): int
+    {
+        if ($requestedPoints <= 0) {
+            return 0;
+        }
+
+        if (! $customer) {
+            throw ValidationException::withMessages([
+                'redeem_points' => 'Pilih customer terlebih dahulu untuk menukar poin.',
+            ]);
+        }
+
+        if ($requestedPoints > $customer->points) {
+            throw ValidationException::withMessages([
+                'redeem_points' => 'Poin customer tidak mencukupi.',
+            ]);
+        }
+
+        $maxRedeemableByTotal = (int) floor($grandTotal / self::POINTS_REDEEM_VALUE);
+
+        return min($requestedPoints, $maxRedeemableByTotal);
+    }
+
+    /** @return array{0: PromoCode, 1: float} */
+    private function resolvePromoCode(string $code, float $subtotal): array
+    {
+        $promoCode = PromoCode::query()
+            ->whereRaw('upper(code) = ?', [strtoupper($code)])
+            ->lockForUpdate()
+            ->first();
+
+        if (! $promoCode) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Kode promo tidak ditemukan.',
+            ]);
+        }
+
+        $reason = $promoCode->ineligibilityReason($subtotal);
+        if ($reason) {
+            throw ValidationException::withMessages([
+                'promo_code' => $reason,
+            ]);
+        }
+
+        return [$promoCode, $promoCode->calculateDiscount($subtotal)];
     }
 
     private function hasOpenShift(int $userId): bool

@@ -4,7 +4,15 @@
     <meta charset="UTF-8">
     <link rel="icon" href="/favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vite App</title>
+    <title>KasirTcuy</title>
+    <script>
+      // Set the theme class before Vue mounts, so the page never flashes light-then-dark (or vice versa).
+      // Defaults to light until the user explicitly picks dark (no longer follows OS preference).
+      (function () {
+        var saved = localStorage.getItem('pos_theme');
+        if (saved === 'dark') document.documentElement.classList.add('dark');
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

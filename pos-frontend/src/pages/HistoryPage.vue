@@ -2,10 +2,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import { useManagerApprovalStore } from '../stores/managerApproval'
+import { useEscToClose } from '../composables/useEscToClose'
+import { printReceipt } from '../utils/receipt'
 
+const { t } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 const approval = useManagerApprovalStore()
@@ -44,16 +48,20 @@ const refundDetail = ref(null)
 const refundReason = ref('')
 const refundQtyMap = ref({})
 
+useEscToClose(showDetailModal, () => closeDetailModal())
+useEscToClose(showVoidModal, () => closeVoidModal())
+useEscToClose(showRefundModal, () => closeRefundModal())
+
 const isAdmin = computed(() => auth.user?.role === 'admin')
 const requiresManagerApproval = computed(() => !isAdmin.value)
 
 const approvalSummary = computed(() => {
   if (!approval.isValid) {
-    return 'Approval manager belum aktif.'
+    return t('history.approvalNotActive')
   }
 
   const remainingMinutes = Math.max(1, Math.floor(approval.secondsLeft / 60))
-  return `Approval aktif: ${approval.managerName} (${approval.managerEmail}) - sisa ${remainingMinutes} menit`
+  return t('history.approvalActive', { name: approval.managerName, email: approval.managerEmail, minutes: remainingMinutes })
 })
 
 function buildQueryParams(page = 1) {
@@ -96,7 +104,7 @@ async function loadTransactions(page = 1) {
     lastPage.value = data.last_page ?? 1
     total.value = data.total ?? 0
   } catch {
-    error.value = 'Gagal memuat riwayat transaksi.'
+    error.value = t('history.loadError')
   } finally {
     loading.value = false
   }
@@ -137,9 +145,9 @@ function paymentBadge(method) {
     credit_card: 'bg-fuchsia-100 text-fuchsia-700',
     e_wallet: 'bg-cyan-100 text-cyan-700',
     bank_transfer: 'bg-amber-100 text-amber-700',
-    mixed: 'bg-slate-100 text-slate-700',
+    mixed: 'bg-surface-2 text-ink',
   }
-  return map[method] ?? 'bg-slate-100 text-slate-600'
+  return map[method] ?? 'bg-surface-2 text-ink-soft'
 }
 
 function statusBadge(status) {
@@ -149,7 +157,7 @@ function statusBadge(status) {
     unpaid: 'bg-rose-100 text-rose-700',
   }
 
-  return map[status] ?? 'bg-slate-100 text-slate-600'
+  return map[status] ?? 'bg-surface-2 text-ink-soft'
 }
 
 async function fetchTransactionDetail(transactionId) {
@@ -165,7 +173,7 @@ async function openDetailModal(transaction) {
   try {
     selectedTransactionDetail.value = await fetchTransactionDetail(transaction.id)
   } catch {
-    error.value = 'Gagal memuat detail transaksi.'
+    error.value = t('history.detailLoadError')
     showDetailModal.value = false
   } finally {
     loadingDetail.value = false
@@ -195,7 +203,7 @@ async function submitVoid() {
   }
 
   if (String(voidReason.value).trim().length < 5) {
-    error.value = 'Alasan void minimal 5 karakter.'
+    error.value = t('history.voidReasonTooShort')
     return
   }
 
@@ -205,7 +213,7 @@ async function submitVoid() {
 
   if (requiresManagerApproval.value) {
     if (!approval.isValid) {
-      error.value = 'Approval manager belum aktif. Buka menu Approval Manager terlebih dahulu.'
+      error.value = t('history.approvalRequiredFirst')
       return
     }
 
@@ -222,7 +230,7 @@ async function submitVoid() {
     closeVoidModal()
     await loadTransactions(currentPage.value)
   } catch (err) {
-    error.value = err.response?.data?.message ?? 'Gagal melakukan void transaksi.'
+    error.value = err.response?.data?.message ?? t('history.voidError')
   } finally {
     processingVoid.value = false
     processingVoidId.value = null
@@ -247,7 +255,7 @@ async function openRefundModal(transaction) {
     })
     refundQtyMap.value = nextMap
   } catch {
-    error.value = 'Gagal memuat detail transaksi untuk refund.'
+    error.value = t('history.refundDetailError')
     showRefundModal.value = false
   } finally {
     processingRefund.value = false
@@ -275,12 +283,12 @@ async function submitRefund() {
     .filter((item) => item.quantity > 0)
 
   if (items.length === 0) {
-    error.value = 'Pilih minimal satu item untuk direfund.'
+    error.value = t('history.selectAtLeastOneItem')
     return
   }
 
   if (String(refundReason.value).trim().length < 5) {
-    error.value = 'Alasan refund minimal 5 karakter.'
+    error.value = t('history.refundReasonTooShort')
     return
   }
 
@@ -291,7 +299,7 @@ async function submitRefund() {
 
   if (requiresManagerApproval.value) {
     if (!approval.isValid) {
-      error.value = 'Approval manager belum aktif. Buka menu Approval Manager terlebih dahulu.'
+      error.value = t('history.approvalRequiredFirst')
       return
     }
 
@@ -307,7 +315,7 @@ async function submitRefund() {
     closeRefundModal()
     await loadTransactions(currentPage.value)
   } catch (err) {
-    error.value = err.response?.data?.message ?? 'Gagal memproses refund.'
+    error.value = err.response?.data?.message ?? t('history.refundError')
   } finally {
     processingRefund.value = false
   }
@@ -413,6 +421,8 @@ function downloadExcelWorkbook(filename, sheets) {
   XLSX.writeFile(workbook, filename)
 }
 
+// Note: Excel export column headers/sheet names stay in Indonesian regardless of the
+// active UI locale — they're generated file content, not on-screen UI.
 function buildHistoryDetailRows(transactionsList) {
   const rows = [
     [
@@ -559,9 +569,20 @@ async function exportExcel() {
       },
     ])
   } catch (err) {
-    error.value = err.response?.data?.message ?? 'Gagal export Excel.'
+    error.value = err.response?.data?.message ?? t('history.exportExcelError')
   } finally {
     exporting.value = false
+  }
+}
+
+async function printTransactionReceipt(transaction) {
+  error.value = ''
+
+  try {
+    const detail = await fetchTransactionDetail(transaction.id)
+    printReceipt(detail)
+  } catch {
+    error.value = t('history.printReceiptError')
   }
 }
 
@@ -631,7 +652,7 @@ async function exportTransactionDetailExcel(transaction) {
       },
     ])
   } catch {
-    error.value = 'Gagal export detail transaksi ke Excel.'
+    error.value = t('history.exportDetailError')
   }
 }
 
@@ -648,18 +669,18 @@ onMounted(() => {
   <div>
     <div class="mb-5 flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-slate-800">Riwayat Transaksi</h1>
-        <p class="text-sm text-slate-500">Total {{ total }} transaksi</p>
+        <h1 class="text-xl font-bold text-ink">{{ t('history.title') }}</h1>
+        <p class="text-sm text-ink-faint">{{ t('history.totalCount', { count: total }) }}</p>
       </div>
       <div class="flex gap-2">
-        <button class="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50" @click="resetFilters">
-          Reset Filter
+        <button class="rounded-lg border border-line px-4 py-2 text-sm hover:bg-surface-2" @click="resetFilters">
+          {{ t('history.resetFilter') }}
         </button>
-        <button class="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50" @click="loadTransactions(currentPage)">
-          Muat Ulang
+        <button class="rounded-lg border border-line px-4 py-2 text-sm hover:bg-surface-2" @click="loadTransactions(currentPage)">
+          {{ t('history.reload') }}
         </button>
-        <button class="rounded-lg border border-indigo-300 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50" :disabled="exporting" @click="exportExcel">
-          {{ exporting ? 'Mengunduh...' : 'Export Excel' }}
+        <button class="rounded-lg border border-brand-300 px-4 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50" :disabled="exporting" @click="exportExcel">
+          {{ exporting ? t('history.exporting') : t('history.exportExcel') }}
         </button>
       </div>
     </div>
@@ -673,26 +694,26 @@ onMounted(() => {
     >
       <div class="flex items-center justify-between gap-3">
         <p>{{ approvalSummary }}</p>
-        <button class="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" @click="goToManagerApproval">
-          Buka Approval Manager
+        <button class="rounded border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-2" @click="goToManagerApproval">
+          {{ t('history.openManagerApproval') }}
         </button>
       </div>
     </div>
 
-    <div class="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-6">
+    <div class="mb-4 grid gap-3 rounded-xl border border-line-soft bg-surface p-4 md:grid-cols-6">
       <label class="block text-sm">
-        <span class="mb-1 block text-xs text-slate-500">Status Bayar</span>
-        <select v-model="filters.payment_status" class="w-full rounded border border-slate-300 px-3 py-2" @change="applyFilters">
-          <option value="">Semua</option>
+        <span class="mb-1 block text-xs text-ink-faint">{{ t('history.filterPaymentStatus') }}</span>
+        <select v-model="filters.payment_status" class="w-full rounded border border-line px-3 py-2" @change="applyFilters">
+          <option value="">{{ t('history.filterAll') }}</option>
           <option value="paid">Paid</option>
           <option value="partial">Partial</option>
           <option value="unpaid">Unpaid</option>
         </select>
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block text-xs text-slate-500">Metode Bayar</span>
-        <select v-model="filters.payment_method" class="w-full rounded border border-slate-300 px-3 py-2" @change="applyFilters">
-          <option value="">Semua</option>
+        <span class="mb-1 block text-xs text-ink-faint">{{ t('history.filterPaymentMethod') }}</span>
+        <select v-model="filters.payment_method" class="w-full rounded border border-line px-3 py-2" @change="applyFilters">
+          <option value="">{{ t('history.filterAll') }}</option>
           <option value="cash">Cash</option>
           <option value="qris">QRIS</option>
           <option value="debit">Debit</option>
@@ -703,24 +724,24 @@ onMounted(() => {
         </select>
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block text-xs text-slate-500">Status Void</span>
-        <select v-model="filters.is_voided" class="w-full rounded border border-slate-300 px-3 py-2" @change="applyFilters">
-          <option value="">Semua</option>
-          <option value="false">Aktif</option>
+        <span class="mb-1 block text-xs text-ink-faint">{{ t('history.filterVoidStatus') }}</span>
+        <select v-model="filters.is_voided" class="w-full rounded border border-line px-3 py-2" @change="applyFilters">
+          <option value="">{{ t('history.filterAll') }}</option>
+          <option value="false">{{ t('history.filterActive') }}</option>
           <option value="true">Voided</option>
         </select>
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block text-xs text-slate-500">Dari Tanggal</span>
-        <input v-model="filters.start_date" type="date" class="w-full rounded border border-slate-300 px-3 py-2" @change="applyFilters" />
+        <span class="mb-1 block text-xs text-ink-faint">{{ t('history.filterFromDate') }}</span>
+        <input v-model="filters.start_date" type="date" class="w-full rounded border border-line px-3 py-2" @change="applyFilters" />
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block text-xs text-slate-500">Sampai Tanggal</span>
-        <input v-model="filters.end_date" type="date" class="w-full rounded border border-slate-300 px-3 py-2" @change="applyFilters" />
+        <span class="mb-1 block text-xs text-ink-faint">{{ t('history.filterToDate') }}</span>
+        <input v-model="filters.end_date" type="date" class="w-full rounded border border-line px-3 py-2" @change="applyFilters" />
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block text-xs text-slate-500">Baris per Halaman</span>
-        <select v-model.number="filters.per_page" class="w-full rounded border border-slate-300 px-3 py-2" @change="applyFilters">
+        <span class="mb-1 block text-xs text-ink-faint">{{ t('history.filterRowsPerPage') }}</span>
+        <select v-model.number="filters.per_page" class="w-full rounded border border-line px-3 py-2" @change="applyFilters">
           <option :value="10">10</option>
           <option :value="15">15</option>
           <option :value="25">25</option>
@@ -731,27 +752,28 @@ onMounted(() => {
 
     <div v-if="error" class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>
 
-    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div v-if="loading" class="py-12 text-center text-slate-500">Memuat data...</div>
+    <div class="overflow-hidden rounded-2xl border border-line-soft bg-surface shadow-sm">
+      <div v-if="loading" class="py-12 text-center text-ink-faint">{{ t('history.loadingData') }}</div>
 
-      <table v-else class="w-full text-sm">
-        <thead class="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div v-else class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="border-b border-line-soft bg-surface-2 text-left text-xs font-semibold uppercase tracking-wide text-ink-faint">
           <tr>
-            <th class="px-4 py-3">Invoice</th>
-            <th class="px-4 py-3">Tanggal</th>
-            <th class="px-4 py-3">Metode</th>
-            <th class="px-4 py-3">Status</th>
-            <th class="px-4 py-3 text-right">Aksi</th>
-            <th class="px-4 py-3 text-right">Total</th>
+            <th class="px-4 py-3">{{ t('history.colInvoice') }}</th>
+            <th class="px-4 py-3">{{ t('history.colDate') }}</th>
+            <th class="px-4 py-3">{{ t('history.colMethod') }}</th>
+            <th class="px-4 py-3">{{ t('history.colStatus') }}</th>
+            <th class="px-4 py-3 text-right">{{ t('history.colAction') }}</th>
+            <th class="px-4 py-3 text-right">{{ t('history.colTotal') }}</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-line-soft">
           <tr v-if="transactions.length === 0">
-            <td colspan="6" class="py-12 text-center text-slate-400">Belum ada transaksi.</td>
+            <td colspan="6" class="py-12 text-center text-ink-faint">{{ t('history.noTransactionsYet') }}</td>
           </tr>
-          <tr v-for="trx in transactions" :key="trx.id" class="hover:bg-slate-50">
-            <td class="px-4 py-3 font-mono font-medium text-indigo-600">{{ trx.invoice_number }}</td>
-            <td class="px-4 py-3 text-slate-600">{{ formatDate(trx.created_at) }}</td>
+          <tr v-for="trx in transactions" :key="trx.id" class="hover:bg-surface-2">
+            <td class="px-4 py-3 font-mono font-medium text-brand-600">{{ trx.invoice_number }}</td>
+            <td class="px-4 py-3 text-ink-soft">{{ formatDate(trx.created_at) }}</td>
             <td class="px-4 py-3">
               <span :class="['rounded-full px-2 py-0.5 text-xs font-semibold', paymentBadge(trx.payment_method)]">
                 {{ trx.payment_method?.toUpperCase() }}
@@ -761,52 +783,59 @@ onMounted(() => {
               <span :class="['rounded-full px-2 py-0.5 text-xs font-semibold', statusBadge(trx.payment_status)]">
                 {{ trx.payment_status }}
               </span>
-              <p v-if="trx.is_voided" class="mt-1 text-xs text-rose-600">
-                VOID: {{ trx.void_reason }}
+              <p v-if="trx.is_voided" class="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                {{ t('history.voidLabel', { reason: trx.void_reason }) }}
               </p>
             </td>
             <td class="px-4 py-3 text-right">
               <div class="flex justify-end gap-2">
                 <button
-                  class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  class="rounded-lg border border-line px-2.5 py-1 text-xs font-semibold text-ink hover:bg-surface-2"
                   @click="openDetailModal(trx)"
                 >
-                  Detail
+                  {{ t('history.detail') }}
                 </button>
                 <button
-                  class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  class="rounded-lg border border-line px-2.5 py-1 text-xs font-semibold text-ink hover:bg-surface-2"
+                  @click="printTransactionReceipt(trx)"
+                >
+                  {{ t('history.printReceipt') }}
+                </button>
+                <button
+                  class="rounded-lg border border-line px-2.5 py-1 text-xs font-semibold text-ink hover:bg-surface-2"
                   @click="exportTransactionDetailExcel(trx)"
                 >
-                  Export Detail Excel
+                  {{ t('history.exportDetailExcel') }}
                 </button>
                 <button
                   v-if="!trx.is_voided"
-                  class="rounded-lg border border-indigo-300 px-2.5 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+                  class="rounded-lg border border-brand-300 px-2.5 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 disabled:opacity-50"
                   @click="openRefundModal(trx)"
                 >
-                  Refund
+                  {{ t('history.refund') }}
                 </button>
                 <button
                   v-if="!trx.is_voided"
-                  class="rounded-lg border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                  class="rounded-lg border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-950"
                   :disabled="processingVoidId === trx.id"
                   @click="openVoidModal(trx)"
                 >
-                  {{ processingVoidId === trx.id ? 'Memproses...' : 'Void' }}
+                  {{ processingVoidId === trx.id ? t('history.processing') : t('history.void') }}
                 </button>
               </div>
             </td>
-            <td class="px-4 py-3 text-right font-semibold text-slate-800">{{ formatCurrency(trx.grand_total) }}</td>
+            <td class="px-4 py-3 text-right font-semibold text-ink">{{ formatCurrency(trx.grand_total) }}</td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <div v-if="lastPage > 1" class="mt-4 flex items-center justify-center gap-2">
       <button
         v-for="page in lastPage"
         :key="page"
-        :class="['rounded-lg px-3 py-1.5 text-sm font-medium', page === currentPage ? 'bg-indigo-600 text-white' : 'border border-slate-300 hover:bg-slate-50']"
+        :class="['rounded-lg px-3 py-1.5 text-sm font-medium', page === currentPage ? 'bg-brand-600 text-white' : 'border border-line hover:bg-surface-2']"
         @click="loadTransactions(page)"
       >
         {{ page }}
@@ -814,33 +843,45 @@ onMounted(() => {
     </div>
   </div>
 
-  <div v-if="showDetailModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-    <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+  <div v-if="showDetailModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="detail-modal-title" class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl">
       <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-slate-800">Detail Transaksi</h2>
-        <button class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50" @click="closeDetailModal">Tutup</button>
+        <h2 id="detail-modal-title" class="text-lg font-bold text-ink">{{ t('history.transactionDetailTitle') }}</h2>
+        <div class="flex items-center gap-2">
+          <button
+            v-if="selectedTransactionDetail"
+            class="flex items-center gap-1.5 rounded border border-line px-2 py-1 text-xs font-semibold text-ink hover:bg-surface-2"
+            @click="printReceipt(selectedTransactionDetail)"
+          >
+            <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            {{ t('history.printReceipt') }}
+          </button>
+          <button class="rounded border border-line px-2 py-1 text-xs hover:bg-surface-2" @click="closeDetailModal">{{ t('history.close') }}</button>
+        </div>
       </div>
 
-      <div v-if="loadingDetail" class="py-8 text-center text-sm text-slate-500">Memuat detail...</div>
+      <div v-if="loadingDetail" class="py-8 text-center text-sm text-ink-faint">{{ t('history.loadingDetail') }}</div>
 
       <div v-else-if="selectedTransactionDetail" class="space-y-4">
-        <div class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
-          <p class="text-sm"><span class="text-slate-500">Invoice:</span> <span class="font-semibold">{{ selectedTransactionDetail.invoice_number }}</span></p>
-          <p class="text-sm"><span class="text-slate-500">Kasir:</span> <span class="font-semibold">{{ selectedTransactionDetail.user?.name ?? '-' }}</span></p>
-          <p class="text-sm"><span class="text-slate-500">Customer:</span> <span class="font-semibold">{{ selectedTransactionDetail.customer?.name ?? '-' }}</span></p>
-          <p class="text-sm"><span class="text-slate-500">Tanggal:</span> <span class="font-semibold">{{ formatDate(selectedTransactionDetail.created_at) }}</span></p>
+        <div class="grid gap-3 rounded-lg border border-line-soft bg-surface-2 p-3 md:grid-cols-2">
+          <p class="text-sm"><span class="text-ink-faint">{{ t('history.invoiceLabel') }}</span> <span class="font-semibold">{{ selectedTransactionDetail.invoice_number }}</span></p>
+          <p class="text-sm"><span class="text-ink-faint">{{ t('history.cashierLabel') }}</span> <span class="font-semibold">{{ selectedTransactionDetail.user?.name ?? '-' }}</span></p>
+          <p class="text-sm"><span class="text-ink-faint">{{ t('history.customerLabel') }}</span> <span class="font-semibold">{{ selectedTransactionDetail.customer?.name ?? '-' }}</span></p>
+          <p class="text-sm"><span class="text-ink-faint">{{ t('history.dateLabel') }}</span> <span class="font-semibold">{{ formatDate(selectedTransactionDetail.created_at) }}</span></p>
         </div>
 
-        <div class="rounded-xl border border-slate-200">
+        <div class="rounded-xl border border-line-soft">
           <table class="w-full text-sm">
-            <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead class="bg-surface-2 text-left text-xs uppercase tracking-wide text-ink-faint">
               <tr>
-                <th class="px-3 py-2">Item</th>
-                <th class="px-3 py-2 text-right">Qty</th>
-                <th class="px-3 py-2 text-right">Subtotal</th>
+                <th class="px-3 py-2">{{ t('history.itemCol') }}</th>
+                <th class="px-3 py-2 text-right">{{ t('history.qtyCol') }}</th>
+                <th class="px-3 py-2 text-right">{{ t('history.subtotalCol') }}</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100">
+            <tbody class="divide-y divide-line-soft">
               <tr v-for="detail in selectedTransactionDetail.details" :key="detail.id">
                 <td class="px-3 py-2">{{ detail.product_name_snapshot }}</td>
                 <td class="px-3 py-2 text-right">{{ detail.quantity }}</td>
@@ -851,9 +892,9 @@ onMounted(() => {
         </div>
 
         <div class="grid gap-3 md:grid-cols-2">
-          <div class="rounded-lg border border-slate-200 p-3">
-            <p class="mb-2 text-xs font-semibold uppercase text-slate-500">Pembayaran</p>
-            <p v-if="!selectedTransactionDetail.payments?.length" class="text-sm text-slate-500">Tidak ada data pembayaran rinci.</p>
+          <div class="rounded-lg border border-line-soft p-3">
+            <p class="mb-2 text-xs font-semibold uppercase text-ink-faint">{{ t('history.paymentSection') }}</p>
+            <p v-if="!selectedTransactionDetail.payments?.length" class="text-sm text-ink-faint">{{ t('history.noDetailedPayment') }}</p>
             <ul v-else class="space-y-1 text-sm">
               <li v-for="payment in selectedTransactionDetail.payments" :key="payment.id" class="flex justify-between">
                 <span>{{ payment.payment_method }}</span>
@@ -861,12 +902,12 @@ onMounted(() => {
               </li>
             </ul>
           </div>
-          <div class="rounded-lg border border-slate-200 p-3">
-            <p class="mb-2 text-xs font-semibold uppercase text-slate-500">Refund</p>
-            <p v-if="!selectedTransactionDetail.refunds?.length" class="text-sm text-slate-500">Belum ada refund.</p>
+          <div class="rounded-lg border border-line-soft p-3">
+            <p class="mb-2 text-xs font-semibold uppercase text-ink-faint">{{ t('history.refundSection') }}</p>
+            <p v-if="!selectedTransactionDetail.refunds?.length" class="text-sm text-ink-faint">{{ t('history.noRefundYet') }}</p>
             <ul v-else class="space-y-1 text-sm">
               <li v-for="refund in selectedTransactionDetail.refunds" :key="refund.id" class="flex justify-between">
-                <span>{{ refund.reason || 'Tanpa alasan' }}</span>
+                <span>{{ refund.reason || t('history.noReason') }}</span>
                 <span class="font-semibold">{{ formatCurrency(refund.refund_total) }}</span>
               </li>
             </ul>
@@ -876,24 +917,24 @@ onMounted(() => {
     </div>
   </div>
 
-  <div v-if="showVoidModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-    <div class="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+  <div v-if="showVoidModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="void-modal-title" class="w-full max-w-lg rounded-2xl bg-surface p-5 shadow-2xl">
       <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-slate-800">Void Transaksi</h2>
-        <button class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50" @click="closeVoidModal">Tutup</button>
+        <h2 id="void-modal-title" class="text-lg font-bold text-ink">{{ t('history.voidModalTitle') }}</h2>
+        <button class="rounded border border-line px-2 py-1 text-xs hover:bg-surface-2" @click="closeVoidModal">{{ t('history.close') }}</button>
       </div>
 
-      <p v-if="voidTransactionTarget" class="mb-3 text-sm text-slate-500">Invoice: {{ voidTransactionTarget.invoice_number }}</p>
+      <p v-if="voidTransactionTarget" class="mb-3 text-sm text-ink-faint">{{ t('history.invoiceLabel') }} {{ voidTransactionTarget.invoice_number }}</p>
 
       <label class="block">
-        <span class="mb-1 block text-sm text-slate-600">Alasan Void</span>
-        <textarea v-model="voidReason" rows="3" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Contoh: pesanan batal" />
+        <span class="mb-1 block text-sm text-ink-soft">{{ t('history.voidReasonLabel') }}</span>
+        <textarea v-model="voidReason" rows="3" class="w-full rounded border border-line px-3 py-2 text-sm" :placeholder="t('history.voidPlaceholder')" />
       </label>
 
       <div v-if="requiresManagerApproval" class="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
         <p>{{ approvalSummary }}</p>
-        <button class="mt-2 rounded border border-amber-300 bg-white px-2 py-1 font-semibold text-amber-800 hover:bg-amber-100" @click="goToManagerApproval">
-          Buka Approval Manager
+        <button class="mt-2 rounded border border-amber-300 bg-surface px-2 py-1 font-semibold text-amber-800 hover:bg-amber-100" @click="goToManagerApproval">
+          {{ t('history.openManagerApproval') }}
         </button>
       </div>
 
@@ -902,33 +943,33 @@ onMounted(() => {
         :disabled="processingVoid"
         @click="submitVoid"
       >
-        {{ processingVoid ? 'Memproses...' : 'Konfirmasi Void' }}
+        {{ processingVoid ? t('history.processing') : t('history.confirmVoid') }}
       </button>
     </div>
   </div>
 
-  <div v-if="showRefundModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-    <div class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+  <div v-if="showRefundModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="refund-modal-title" class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl">
       <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-slate-800">Refund Transaksi</h2>
-        <button class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50" @click="closeRefundModal">Tutup</button>
+        <h2 id="refund-modal-title" class="text-lg font-bold text-ink">{{ t('history.refundModalTitle') }}</h2>
+        <button class="rounded border border-line px-2 py-1 text-xs hover:bg-surface-2" @click="closeRefundModal">{{ t('history.close') }}</button>
       </div>
 
-      <p v-if="refundTransaction" class="mb-4 text-sm text-slate-500">Invoice: {{ refundTransaction.invoice_number }}</p>
+      <p v-if="refundTransaction" class="mb-4 text-sm text-ink-faint">{{ t('history.invoiceLabel') }} {{ refundTransaction.invoice_number }}</p>
 
-      <div v-if="processingRefund" class="py-6 text-center text-sm text-slate-500">Memuat detail...</div>
+      <div v-if="processingRefund" class="py-6 text-center text-sm text-ink-faint">{{ t('history.loadingDetail') }}</div>
 
       <div v-else-if="refundDetail" class="space-y-4">
-        <div class="rounded-xl border border-slate-200">
+        <div class="rounded-xl border border-line-soft">
           <table class="w-full text-sm">
-            <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead class="bg-surface-2 text-left text-xs uppercase tracking-wide text-ink-faint">
               <tr>
-                <th class="px-3 py-2">Item</th>
-                <th class="px-3 py-2 text-right">Qty Jual</th>
-                <th class="px-3 py-2 text-right">Refund Qty</th>
+                <th class="px-3 py-2">{{ t('history.itemCol') }}</th>
+                <th class="px-3 py-2 text-right">{{ t('history.qtySoldCol') }}</th>
+                <th class="px-3 py-2 text-right">{{ t('history.refundQtyCol') }}</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100">
+            <tbody class="divide-y divide-line-soft">
               <tr v-for="detail in refundDetail.details" :key="detail.id">
                 <td class="px-3 py-2">{{ detail.product_name_snapshot }}</td>
                 <td class="px-3 py-2 text-right">{{ detail.quantity }}</td>
@@ -938,7 +979,7 @@ onMounted(() => {
                     type="number"
                     min="0"
                     :max="detail.quantity"
-                    class="w-24 rounded border border-slate-300 px-2 py-1 text-right text-sm"
+                    class="w-24 rounded border border-line px-2 py-1 text-right text-sm"
                   />
                 </td>
               </tr>
@@ -947,23 +988,23 @@ onMounted(() => {
         </div>
 
         <label class="block">
-          <span class="mb-1 block text-sm text-slate-600">Alasan Refund</span>
-          <textarea v-model="refundReason" rows="2" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Contoh: produk rusak" />
+          <span class="mb-1 block text-sm text-ink-soft">{{ t('history.refundReasonLabel') }}</span>
+          <textarea v-model="refundReason" rows="2" class="w-full rounded border border-line px-3 py-2 text-sm" :placeholder="t('history.refundPlaceholder')" />
         </label>
 
         <div v-if="requiresManagerApproval" class="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
           <p>{{ approvalSummary }}</p>
-          <button class="mt-2 rounded border border-amber-300 bg-white px-2 py-1 font-semibold text-amber-800 hover:bg-amber-100" @click="goToManagerApproval">
-            Buka Approval Manager
+          <button class="mt-2 rounded border border-amber-300 bg-surface px-2 py-1 font-semibold text-amber-800 hover:bg-amber-100" @click="goToManagerApproval">
+            {{ t('history.openManagerApproval') }}
           </button>
         </div>
 
         <button
-          class="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+          class="w-full rounded-full bg-brand-600 active:scale-95 transition-transform py-2.5 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
           :disabled="processingRefund"
           @click="submitRefund"
         >
-          {{ processingRefund ? 'Memproses...' : 'Proses Refund' }}
+          {{ processingRefund ? t('history.processing') : t('history.processRefund') }}
         </button>
       </div>
     </div>

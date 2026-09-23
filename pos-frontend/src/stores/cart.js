@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import api from '../services/api'
 
 export const useCartStore = defineStore('cart', () => {
   const items = ref([])
@@ -103,26 +104,44 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   // ── Hold Order System ─────────────────────────────────────────────────────
+  // Held orders live server-side (held_orders table) so they survive a refresh/logout
+  // and any cashier on any register can recall one — not just the one who held it.
   const heldOrders = ref([])
+  const loadingHeldOrders = ref(false)
 
-  function holdCart(label = null) {
+  async function fetchHeldOrders() {
+    loadingHeldOrders.value = true
+    try {
+      const response = await api.get('/v1/held-orders')
+      heldOrders.value = response.data ?? []
+      return { ok: true }
+    } catch {
+      return { ok: false, message: 'Gagal memuat order yang di-tahan.' }
+    } finally {
+      loadingHeldOrders.value = false
+    }
+  }
+
+  async function holdCart(label = null) {
     if (items.value.length === 0) {
       return { ok: false, message: 'Keranjang kosong, tidak bisa di-hold.' }
     }
 
-    heldOrders.value.push({
-      id: Date.now(),
-      label: label ?? `Order #${heldOrders.value.length + 1}`,
-      items: items.value.map((i) => ({ ...i })),
-      subtotal: subtotal.value,
-      timestamp: new Date().toISOString(),
-    })
-
-    items.value = []
-    return { ok: true }
+    try {
+      await api.post('/v1/held-orders', {
+        label: label ?? `Order #${heldOrders.value.length + 1}`,
+        items: items.value.map((i) => ({ ...i })),
+        subtotal: subtotal.value,
+      })
+      items.value = []
+      await fetchHeldOrders()
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error.response?.data?.message ?? 'Gagal menahan order.' }
+    }
   }
 
-  function recallOrder(orderId) {
+  async function recallOrder(orderId) {
     const target = heldOrders.value.find((o) => o.id === orderId)
 
     if (!target) {
@@ -131,21 +150,31 @@ export const useCartStore = defineStore('cart', () => {
 
     // If current cart has items, hold it first so nothing is lost when switching orders.
     if (items.value.length > 0) {
-      const holdResult = holdCart()
+      const holdResult = await holdCart()
 
       if (holdResult?.ok === false) {
         return holdResult
       }
     }
 
-    items.value = target.items.map((i) => ({ ...i }))
-    heldOrders.value = heldOrders.value.filter((o) => o.id !== orderId)
-
-    return { ok: true }
+    try {
+      await api.delete(`/v1/held-orders/${orderId}`)
+      items.value = target.items.map((i) => ({ ...i }))
+      heldOrders.value = heldOrders.value.filter((o) => o.id !== orderId)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error.response?.data?.message ?? 'Gagal memanggil order.' }
+    }
   }
 
-  function removeHeldOrder(orderId) {
-    heldOrders.value = heldOrders.value.filter((o) => o.id !== orderId)
+  async function removeHeldOrder(orderId) {
+    try {
+      await api.delete(`/v1/held-orders/${orderId}`)
+      heldOrders.value = heldOrders.value.filter((o) => o.id !== orderId)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error.response?.data?.message ?? 'Gagal menghapus order.' }
+    }
   }
 
   const itemCount = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0))
@@ -154,6 +183,7 @@ export const useCartStore = defineStore('cart', () => {
   return {
     items,
     heldOrders,
+    loadingHeldOrders,
     itemCount,
     subtotal,
     addToCart,
@@ -162,6 +192,7 @@ export const useCartStore = defineStore('cart', () => {
     syncStock,
     removeItem,
     clearCart,
+    fetchHeldOrders,
     holdCart,
     recallOrder,
     removeHeldOrder,

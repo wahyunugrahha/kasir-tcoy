@@ -7,13 +7,16 @@
 /storage/logs/*
 !/storage/logs/.gitignore
 
+.claude
 .env
 .env.backup
 .env.production
 .env.local
 *.sql
 *.sqlite
-
+CLAUDE.md
+DESIGN.md
+anti-slop
 /node_modules
 /public/build
 /public/hot

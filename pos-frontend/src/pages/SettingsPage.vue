@@ -1,8 +1,11 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
+import { useEscToClose } from '../composables/useEscToClose'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 const isAdmin = auth.isAdmin
 
@@ -31,6 +34,8 @@ const userSubmitting = ref(false)
 const editingUserId = ref(null)
 const showUserForm = ref(false)
 
+useEscToClose(showUserForm, () => { showUserForm.value = false })
+
 const SETTINGS_KEY = 'pos_store_settings'
 
 function normalizePercent(value) {
@@ -55,7 +60,7 @@ function loadStoreSettings() {
 function saveStoreSettings() {
   storeSettings.value.tax_percentage = normalizePercent(storeSettings.value.tax_percentage)
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(storeSettings.value))
-  successMsg.value = 'Pengaturan toko berhasil disimpan!'
+  successMsg.value = t('settings.storeSaveSuccess')
   setTimeout(() => { successMsg.value = '' }, 3000)
 }
 
@@ -74,7 +79,7 @@ async function loadData() {
     categories.value = catRes.data.data ?? catRes.data ?? []
     users.value = usrRes.data.data ?? usrRes.data ?? []
   } catch {
-    error.value = 'Gagal memuat data pengaturan.'
+    error.value = t('settings.loadError')
   } finally {
     loading.value = false
   }
@@ -94,7 +99,7 @@ async function saveCategory() {
     editingCatId.value = null
     await loadData()
   } catch (e) {
-    error.value = e.response?.data?.message ?? 'Gagal menyimpan kategori.'
+    error.value = e.response?.data?.message ?? t('settings.categorySaveError')
   } finally {
     catSubmitting.value = false
   }
@@ -106,12 +111,12 @@ function editCategory(cat) {
 }
 
 async function deleteCategory(id) {
-  if (!confirm('Hapus kategori ini? Produk yang terkait tidak akan dihapus.')) return
+  if (!confirm(t('settings.confirmDeleteCategory'))) return
   try {
     await api.delete(`/v1/categories/${id}`)
     await loadData()
   } catch (e) {
-    error.value = e.response?.data?.message ?? 'Gagal menghapus kategori.'
+    error.value = e.response?.data?.message ?? t('settings.categoryDeleteError')
   }
 }
 
@@ -145,19 +150,19 @@ async function saveUser() {
     await loadData()
   } catch (e) {
     const errData = e.response?.data
-    error.value = errData?.errors ? Object.values(errData.errors).flat().join(', ') : (errData?.message ?? 'Gagal menyimpan user.')
+    error.value = errData?.errors ? Object.values(errData.errors).flat().join(', ') : (errData?.message ?? t('settings.userSaveError'))
   } finally {
     userSubmitting.value = false
   }
 }
 
 async function deleteUser(id) {
-  if (!confirm('Hapus user ini?')) return
+  if (!confirm(t('settings.confirmDeleteUser'))) return
   try {
     await api.delete(`/v1/users/${id}`)
     await loadData()
   } catch {
-    error.value = 'Gagal menghapus user.'
+    error.value = t('settings.userDeleteError')
   }
 }
 
@@ -177,11 +182,11 @@ async function saveMyPin() {
   pinSuccess.value = ''
 
   if (pinForm.value.new_pin.length < 4 || !/^[0-9]+$/.test(pinForm.value.new_pin)) {
-    pinError.value = 'PIN baru harus minimal 4 digit angka.'
+    pinError.value = t('settings.pinTooShort')
     return
   }
   if (pinForm.value.new_pin !== pinForm.value.confirm_pin) {
-    pinError.value = 'Konfirmasi PIN tidak cocok.'
+    pinError.value = t('settings.pinMismatch')
     return
   }
 
@@ -194,13 +199,13 @@ async function saveMyPin() {
       current_pin: pinForm.value.current_pin || undefined,
       manager_pin: pinForm.value.new_pin,
     })
-    pinSuccess.value = 'PIN Manager berhasil diperbarui.'
+    pinSuccess.value = t('settings.pinUpdateSuccess')
     pinForm.value = { current_pin: '', new_pin: '', confirm_pin: '' }
   } catch (e) {
     const errData = e.response?.data
     pinError.value = errData?.errors
       ? Object.values(errData.errors).flat().join(', ')
-      : (errData?.message ?? 'Gagal menyimpan PIN.')
+      : (errData?.message ?? t('settings.pinSaveError'))
   } finally {
     pinSubmitting.value = false
   }
@@ -210,151 +215,153 @@ async function saveMyPin() {
 <template>
   <div class="space-y-6">
     <div>
-      <h1 class="text-xl font-bold text-slate-800">Pengaturan</h1>
-      <p class="text-sm text-slate-500">Konfigurasi toko, kategori, dan akun pengguna</p>
+      <h1 class="text-xl font-bold text-ink">{{ t('settings.title') }}</h1>
+      <p class="text-sm text-ink-faint">{{ t('settings.subtitle') }}</p>
     </div>
 
     <div v-if="error" class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</div>
     <div v-if="successMsg" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ successMsg }}</div>
 
     <!-- Store settings -->
-    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 class="mb-4 font-semibold text-slate-700">Informasi Toko</h2>
+    <div class="rounded-2xl border border-line-soft bg-surface p-6 shadow-sm">
+      <h2 class="mb-4 font-semibold text-ink">{{ t('settings.storeInfo') }}</h2>
       <div class="grid gap-4 sm:grid-cols-2">
         <label class="block">
-          <span class="mb-1 block text-sm text-slate-600">Nama Toko</span>
-          <input v-model="storeSettings.store_name" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Nama Toko Anda" />
+          <span class="mb-1 block text-sm text-ink-soft">{{ t('settings.storeName') }}</span>
+          <input v-model="storeSettings.store_name" type="text" class="w-full rounded-lg border border-line px-3 py-2 text-sm" :placeholder="t('settings.storeNamePlaceholder')" />
         </label>
         <label class="block">
-          <span class="mb-1 block text-sm text-slate-600">No. Telepon</span>
-          <input v-model="storeSettings.store_phone" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="+62..." />
+          <span class="mb-1 block text-sm text-ink-soft">{{ t('settings.phone') }}</span>
+          <input v-model="storeSettings.store_phone" type="text" class="w-full rounded-lg border border-line px-3 py-2 text-sm" :placeholder="t('settings.phonePlaceholder')" />
         </label>
         <label class="block sm:col-span-2">
-          <span class="mb-1 block text-sm text-slate-600">Alamat</span>
-          <textarea v-model="storeSettings.store_address" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Alamat lengkap..."></textarea>
+          <span class="mb-1 block text-sm text-ink-soft">{{ t('settings.address') }}</span>
+          <textarea v-model="storeSettings.store_address" rows="2" class="w-full rounded-lg border border-line px-3 py-2 text-sm" :placeholder="t('settings.addressPlaceholder')"></textarea>
         </label>
         <label class="block">
-          <span class="mb-1 block text-sm text-slate-600">Pajak Default (%)</span>
-          <input v-model.number="storeSettings.tax_percentage" type="number" min="0" max="100" step="0.01" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" @blur="formatTaxInputOnBlur" />
-          <p class="mt-1 text-xs text-slate-500">Maks 100%</p>
+          <span class="mb-1 block text-sm text-ink-soft">{{ t('settings.defaultTax') }}</span>
+          <input v-model.number="storeSettings.tax_percentage" type="number" min="0" max="100" step="0.01" class="w-full rounded-lg border border-line px-3 py-2 text-sm" @blur="formatTaxInputOnBlur" />
+          <p class="mt-1 text-xs text-ink-faint">{{ t('settings.maxPercent') }}</p>
         </label>
       </div>
-      <button class="mt-4 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500" @click="saveStoreSettings">
-        Simpan Pengaturan Toko
+      <button class="mt-4 rounded-full bg-brand-600 active:scale-95 transition-transform px-5 py-2 text-sm font-semibold text-white hover:bg-brand-500" @click="saveStoreSettings">
+        {{ t('settings.saveStoreSettings') }}
       </button>
     </div>
 
     <!-- Category management -->
-    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 class="mb-4 font-semibold text-slate-700">Manajemen Kategori</h2>
+    <div class="rounded-2xl border border-line-soft bg-surface p-6 shadow-sm">
+      <h2 class="mb-4 font-semibold text-ink">{{ t('settings.categoryManagement') }}</h2>
 
       <div class="mb-4 flex gap-2">
-        <input v-model="catForm.name" type="text" placeholder="Nama kategori..." class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" @keyup.enter="saveCategory" />
+        <input v-model="catForm.name" type="text" :placeholder="t('settings.categoryNamePlaceholder')" class="flex-1 rounded-lg border border-line px-3 py-2 text-sm" @keyup.enter="saveCategory" />
         <button
           :disabled="catSubmitting || !catForm.name"
-          class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+          class="rounded-full bg-brand-600 active:scale-95 transition-transform px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
           @click="saveCategory"
         >
-          {{ editingCatId ? 'Perbarui' : 'Tambah' }}
+          {{ editingCatId ? t('settings.update') : t('settings.add') }}
         </button>
-        <button v-if="editingCatId" class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" @click="editingCatId = null; catForm.name = ''">
-          Batal
+        <button v-if="editingCatId" class="rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2" @click="editingCatId = null; catForm.name = ''">
+          {{ t('settings.cancel') }}
         </button>
       </div>
 
-      <div v-if="loading" class="text-sm text-slate-500">Memuat...</div>
-      <ul v-else class="divide-y divide-slate-100">
+      <div v-if="loading" class="text-sm text-ink-faint">{{ t('settings.loadingShort') }}</div>
+      <ul v-else class="divide-y divide-line-soft">
         <li v-for="cat in categories" :key="cat.id" class="flex items-center justify-between py-2.5 text-sm">
-          <span class="text-slate-700">{{ cat.name }}</span>
+          <span class="text-ink">{{ cat.name }}</span>
           <div class="flex gap-2">
-            <button class="text-xs text-indigo-500 hover:underline" @click="editCategory(cat)">Edit</button>
-            <button class="text-xs text-rose-400 hover:underline" @click="deleteCategory(cat.id)">Hapus</button>
+            <button class="text-xs text-brand-500 hover:underline" @click="editCategory(cat)">{{ t('settings.edit') }}</button>
+            <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline" @click="deleteCategory(cat.id)">{{ t('settings.delete') }}</button>
           </div>
         </li>
-        <li v-if="categories.length === 0" class="py-4 text-center text-slate-400 text-sm">Belum ada kategori.</li>
+        <li v-if="categories.length === 0" class="py-4 text-center text-ink-faint text-sm">{{ t('settings.noCategoriesYet') }}</li>
       </ul>
     </div>
 
     <!-- User management -->
-    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div class="rounded-2xl border border-line-soft bg-surface p-6 shadow-sm">
       <div class="mb-4 flex items-center justify-between">
-        <h2 class="font-semibold text-slate-700">Manajemen Pengguna</h2>
-        <button class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500" @click="openCreateUser">
-          + Tambah User
+        <h2 class="font-semibold text-ink">{{ t('settings.userManagement') }}</h2>
+        <button class="rounded-full bg-brand-600 active:scale-95 transition-transform px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500" @click="openCreateUser">
+          + {{ t('settings.addUser') }}
         </button>
       </div>
 
-      <div v-if="loading" class="text-sm text-slate-500">Memuat...</div>
-      <table v-else class="w-full text-sm">
-        <thead class="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div v-if="loading" class="text-sm text-ink-faint">{{ t('settings.loadingShort') }}</div>
+      <div v-else class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="border-b border-line-soft text-xs font-semibold uppercase tracking-wide text-ink-faint">
           <tr>
-            <th class="pb-2 text-left">Nama</th>
-            <th class="pb-2 text-left">Email</th>
-            <th class="pb-2 text-left">Role</th>
+            <th class="pb-2 text-left">{{ t('settings.nameCol') }}</th>
+            <th class="pb-2 text-left">{{ t('settings.emailCol') }}</th>
+            <th class="pb-2 text-left">{{ t('settings.roleCol') }}</th>
             <th class="pb-2"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-line-soft">
           <tr v-for="user in users" :key="user.id">
-            <td class="py-2.5 font-medium text-slate-800">{{ user.name }}</td>
-            <td class="py-2.5 text-slate-500">{{ user.email }}</td>
+            <td class="py-2.5 font-medium text-ink">{{ user.name }}</td>
+            <td class="py-2.5 text-ink-faint">{{ user.email }}</td>
             <td class="py-2.5">
               <span :class="user.role === 'admin' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'" class="rounded-full px-2 py-0.5 text-xs font-semibold">
                 {{ user.role }}
               </span>
             </td>
             <td class="py-2.5 text-right">
-              <button class="mr-3 text-xs text-indigo-500 hover:underline" @click="openEditUser(user)">Edit</button>
-              <button class="text-xs text-rose-400 hover:underline" @click="deleteUser(user.id)">Hapus</button>
+              <button class="mr-3 text-xs text-brand-500 hover:underline" @click="openEditUser(user)">{{ t('settings.edit') }}</button>
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline" @click="deleteUser(user.id)">{{ t('settings.delete') }}</button>
             </td>
           </tr>
           <tr v-if="users.length === 0">
-            <td colspan="4" class="py-6 text-center text-slate-400">Belum ada pengguna.</td>
+            <td colspan="4" class="py-6 text-center text-ink-faint">{{ t('settings.noUsersYet') }}</td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- Ganti PIN Saya (hanya admin) -->
-    <div v-if="isAdmin" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 class="mb-1 font-semibold text-slate-700">Ganti Manager PIN Saya</h2>
-      <p class="mb-4 text-xs text-slate-500">PIN ini digunakan untuk approval void, refund, dan diskon manual di kasir.</p>
+    <div v-if="isAdmin" class="rounded-2xl border border-line-soft bg-surface p-6 shadow-sm">
+      <h2 class="mb-1 font-semibold text-ink">{{ t('settings.changeMyPin') }}</h2>
+      <p class="mb-4 text-xs text-ink-faint">{{ t('settings.pinUsageHint') }}</p>
 
       <div v-if="pinError" class="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{{ pinError }}</div>
       <div v-if="pinSuccess" class="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{{ pinSuccess }}</div>
 
       <div class="grid gap-4 sm:grid-cols-3 text-sm">
         <label class="block">
-          <span class="mb-1 block text-slate-600">PIN Baru *</span>
+          <span class="mb-1 block text-ink-soft">{{ t('settings.newPin') }}</span>
           <input
             v-model="pinForm.new_pin"
             type="password"
             inputmode="numeric"
             maxlength="20"
-            placeholder="Min. 4 digit angka"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2"
+            :placeholder="t('settings.pinPlaceholder')"
+            class="w-full rounded-lg border border-line px-3 py-2"
             autocomplete="new-password"
           />
         </label>
         <label class="block">
-          <span class="mb-1 block text-slate-600">Konfirmasi PIN *</span>
+          <span class="mb-1 block text-ink-soft">{{ t('settings.confirmPin') }}</span>
           <input
             v-model="pinForm.confirm_pin"
             type="password"
             inputmode="numeric"
             maxlength="20"
-            placeholder="Ulangi PIN baru"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2"
+            :placeholder="t('settings.confirmPinPlaceholder')"
+            class="w-full rounded-lg border border-line px-3 py-2"
             autocomplete="new-password"
           />
         </label>
         <div class="flex items-end">
           <button
             :disabled="pinSubmitting || !pinForm.new_pin || !pinForm.confirm_pin"
-            class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+            class="w-full rounded-full bg-brand-600 active:scale-95 transition-transform px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
             @click="saveMyPin"
           >
-            {{ pinSubmitting ? 'Menyimpan...' : 'Simpan PIN' }}
+            {{ pinSubmitting ? t('settings.saving') : t('settings.savePin') }}
           </button>
         </div>
       </div>
@@ -363,55 +370,59 @@ async function saveMyPin() {
     <!-- User form modal -->
     <Transition name="fade">
       <div v-if="showUserForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-        <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div role="dialog" aria-modal="true" aria-labelledby="user-form-title" class="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl">
           <div class="mb-5 flex items-center justify-between">
-            <h2 class="text-lg font-bold text-slate-800">{{ editingUserId ? 'Edit User' : 'Tambah User' }}</h2>
-            <button class="text-slate-400 hover:text-slate-600" @click="showUserForm = false">✕</button>
+            <h2 id="user-form-title" class="text-lg font-bold text-ink">{{ editingUserId ? t('settings.editUserTitle') : t('settings.addUserTitle') }}</h2>
+            <button :aria-label="t('settings.close')" class="text-ink-faint hover:text-ink-soft" @click="showUserForm = false">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           <div class="space-y-4 text-sm">
             <label class="block">
-              <span class="mb-1 block text-slate-600">Nama *</span>
-              <input v-model="userForm.name" type="text" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <span class="mb-1 block text-ink-soft">{{ t('settings.nameRequired') }}</span>
+              <input v-model="userForm.name" type="text" class="w-full rounded-lg border border-line px-3 py-2" />
             </label>
             <label class="block">
-              <span class="mb-1 block text-slate-600">Email *</span>
-              <input v-model="userForm.email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <span class="mb-1 block text-ink-soft">{{ t('settings.emailRequired') }}</span>
+              <input v-model="userForm.email" type="email" class="w-full rounded-lg border border-line px-3 py-2" />
             </label>
             <label class="block">
-              <span class="mb-1 block text-slate-600">Role</span>
-              <select v-model="userForm.role" class="w-full rounded-lg border border-slate-300 px-3 py-2">
-                <option value="admin">Admin</option>
-                <option value="cashier">Kasir</option>
+              <span class="mb-1 block text-ink-soft">{{ t('settings.roleLabel') }}</span>
+              <select v-model="userForm.role" class="w-full rounded-lg border border-line px-3 py-2">
+                <option value="admin">{{ t('settings.roleAdmin') }}</option>
+                <option value="cashier">{{ t('settings.roleCashier') }}</option>
               </select>
             </label>
             <label class="block">
-              <span class="mb-1 block text-slate-600">Password {{ editingUserId ? '(kosongkan jika tidak diubah)' : '*' }}</span>
-              <input v-model="userForm.password" type="password" class="w-full rounded-lg border border-slate-300 px-3 py-2" autocomplete="new-password" />
+              <span class="mb-1 block text-ink-soft">{{ t('settings.password') }} {{ editingUserId ? t('settings.keepUnchangedHint') : '*' }}</span>
+              <input v-model="userForm.password" type="password" class="w-full rounded-lg border border-line px-3 py-2" autocomplete="new-password" />
             </label>
             <label v-if="userForm.role === 'admin'" class="block">
-              <span class="mb-1 block text-slate-600">Manager PIN {{ editingUserId ? '(kosongkan jika tidak diubah)' : '*' }}</span>
+              <span class="mb-1 block text-ink-soft">{{ t('settings.managerPin') }} {{ editingUserId ? t('settings.keepUnchangedHint') : '*' }}</span>
               <input
                 v-model="userForm.manager_pin"
                 type="password"
                 inputmode="numeric"
                 maxlength="20"
-                placeholder="Min. 4 digit angka"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                :placeholder="t('settings.pinPlaceholder')"
+                class="w-full rounded-lg border border-line px-3 py-2"
                 autocomplete="new-password"
               />
-              <p class="mt-1 text-xs text-slate-500">Digunakan untuk approval void, refund, dan diskon manual.</p>
+              <p class="mt-1 text-xs text-ink-faint">{{ t('settings.managerPinHint') }}</p>
             </label>
           </div>
 
           <div class="mt-5 flex gap-3">
-            <button class="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm hover:bg-slate-50" @click="showUserForm = false">Batal</button>
+            <button class="flex-1 rounded-lg border border-line py-2.5 text-sm hover:bg-surface-2" @click="showUserForm = false">{{ t('settings.cancel') }}</button>
             <button
               :disabled="userSubmitting"
-              class="flex-1 rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+              class="flex-1 rounded-full bg-brand-600 active:scale-95 transition-transform py-2.5 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
               @click="saveUser"
             >
-              {{ userSubmitting ? 'Menyimpan...' : 'Simpan' }}
+              {{ userSubmitting ? t('settings.saving') : t('settings.save') }}
             </button>
           </div>
         </div>

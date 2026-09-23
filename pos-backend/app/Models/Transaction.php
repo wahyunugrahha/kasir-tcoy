@@ -59,6 +59,10 @@ class Transaction extends Model
         'void_reason',
         'cash_received',
         'cash_change',
+        'points_earned',
+        'points_redeemed',
+        'promo_code',
+        'promo_discount_amount',
     ];
 
     protected $casts = [

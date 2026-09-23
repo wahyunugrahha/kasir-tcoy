@@ -256,8 +256,13 @@ class ApiSmokeTest extends TestCase
 
         $this->getJson('/api/v1/shifts')->assertOk();
 
+        // Admin's shift from setUp() is still open; close it before opening a fresh one below.
+        $adminOpenShiftId = Shift::where('user_id', $this->admin->id)->where('status', 'open')->firstOrFail()->id;
+        $this->putJson('/api/v1/shifts/'.$adminOpenShiftId.'/close', [
+            'closing_cash_physical' => 200000,
+        ])->assertOk();
+
         $newShiftId = $this->postJson('/api/v1/shifts', [
-            'user_id' => $newUser,
             'opening_cash' => 120000,
         ])->assertCreated()->json('id');
 

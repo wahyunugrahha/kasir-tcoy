@@ -1,15 +1,14 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
-import { useAuthStore } from '../stores/auth'
 import { useCartStore } from '../stores/cart'
 import ProductCatalog from '../components/ProductCatalog.vue'
 import CartPanel from '../components/CartPanel.vue'
-// Opsional: Jika Anda menggunakan icon (misal: heroicons/lucide-vue)
-// import { ClockIcon, WifiIcon, WifiOffIcon } from 'lucide-vue-next'
+import { printReceipt as printReceiptDoc } from '../utils/receipt'
 
-const auth = useAuthStore()
+const { t } = useI18n()
 const cart = useCartStore()
 const { items, itemCount, subtotal } = storeToRefs(cart)
 
@@ -31,18 +30,31 @@ const cashReceived = ref(0)
 const lastReceipt = ref(null)
 const productCatalogRef = ref(null)
 
+// Rupiah discount per 1 loyalty point — mirrors TransactionService::POINTS_REDEEM_VALUE.
+// Backend is authoritative and re-caps on submit; this is only for the on-screen preview.
+const POINTS_REDEEM_VALUE = 100
+const customerQuery = ref('')
+const customerResults = ref([])
+const searchingCustomer = ref(false)
+const selectedCustomer = ref(null)
+const pointsToRedeem = ref(0)
+let customerSearchTimer = null
+
+const promoCodeInput = ref('')
+const appliedPromo = ref(null) // { code, discount_type, discount_value, max_discount }
+const promoError = ref('')
+const applyingPromo = ref(false)
+
 const PRODUCTS_CACHE_KEY = 'pos_products_cache_v1'
 const PENDING_CHECKOUTS_KEY = 'pos_pending_checkouts_v1'
 const SETTINGS_KEY = 'pos_store_settings'
 const barcodeBuffer = ref('')
 let barcodeTimer = null
+let errorToastTimer = null
+let successToastTimer = null
+let syncingPendingCheckouts = false
 
 const isOnline = ref(navigator.onLine)
-const storeInfo = ref({
-  store_name: 'POS MODERN',
-  store_address: 'Jl. Contoh Alamat No. 123',
-  store_phone: '',
-})
 
 const discountAmount = computed(() => {
   const base = Number(subtotal.value || 0)
@@ -50,7 +62,23 @@ const discountAmount = computed(() => {
   return Math.max(0, base * (Math.max(0, Math.min(100, rate)) / 100))
 })
 
-const taxableAmount = computed(() => Math.max(0, Number(subtotal.value || 0) - Number(discountAmount.value || 0)))
+const promoDiscountAmount = computed(() => {
+  if (!appliedPromo.value) return 0
+  const base = Number(subtotal.value || 0)
+  if (base <= 0) return 0
+
+  let amount = appliedPromo.value.discount_type === 'percent'
+    ? base * (Number(appliedPromo.value.discount_value) / 100)
+    : Number(appliedPromo.value.discount_value)
+
+  if (appliedPromo.value.discount_type === 'percent' && appliedPromo.value.max_discount != null) {
+    amount = Math.min(amount, Number(appliedPromo.value.max_discount))
+  }
+
+  return Math.max(0, Math.min(base, amount))
+})
+
+const taxableAmount = computed(() => Math.max(0, Number(subtotal.value || 0) - Number(discountAmount.value || 0) - Number(promoDiscountAmount.value || 0)))
 
 const taxAmount = computed(() => {
   const base = Number(taxableAmount.value || 0)
@@ -58,7 +86,19 @@ const taxAmount = computed(() => {
   return Math.max(0, base * (Math.max(0, Math.min(100, rate)) / 100))
 })
 
-const grandTotal = computed(() => Number(taxableAmount.value) + Number(taxAmount.value))
+const preRedemptionTotal = computed(() => Math.max(0, Number(taxableAmount.value) + Number(taxAmount.value)))
+
+const pointsDiscountAmount = computed(() => {
+  if (!selectedCustomer.value || Number(pointsToRedeem.value) <= 0) return 0
+
+  const maxByBalance = Number(selectedCustomer.value.points || 0)
+  const maxByTotal = Math.floor(preRedemptionTotal.value / POINTS_REDEEM_VALUE)
+  const capped = Math.max(0, Math.min(Number(pointsToRedeem.value), maxByBalance, maxByTotal))
+
+  return capped * POINTS_REDEEM_VALUE
+})
+
+const grandTotal = computed(() => Math.max(0, preRedemptionTotal.value - pointsDiscountAmount.value))
 
 const totalPaid = computed(() =>
   payments.value.reduce((sum, row) => sum + Number(row.amount || 0), 0)
@@ -98,30 +138,15 @@ function applyTaxFromSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (!raw) {
-      storeInfo.value = {
-        store_name: 'POS MODERN',
-        store_address: 'Jl. Contoh Alamat No. 123',
-        store_phone: '',
-      }
       configuredTaxPercent.value = 0
       tax.value = 0
       return
     }
 
     const parsed = JSON.parse(raw)
-    storeInfo.value = {
-      store_name: String(parsed?.store_name || 'POS MODERN'),
-      store_address: String(parsed?.store_address || 'Jl. Contoh Alamat No. 123'),
-      store_phone: String(parsed?.store_phone || ''),
-    }
     configuredTaxPercent.value = normalizePercent(parsed?.tax_percentage ?? 0)
     tax.value = configuredTaxPercent.value
   } catch {
-    storeInfo.value = {
-      store_name: 'POS MODERN',
-      store_address: 'Jl. Contoh Alamat No. 123',
-      store_phone: '',
-    }
     configuredTaxPercent.value = 0
     tax.value = 0
   }
@@ -130,10 +155,12 @@ function applyTaxFromSettings() {
 function showToast(type, message) {
   if (type === 'error') {
     errorMessage.value = message
-    setTimeout(() => errorMessage.value = '', 5000)
+    clearTimeout(errorToastTimer)
+    errorToastTimer = setTimeout(() => errorMessage.value = '', 5000)
   } else {
     successMessage.value = message
-    setTimeout(() => successMessage.value = '', 5000)
+    clearTimeout(successToastTimer)
+    successToastTimer = setTimeout(() => successMessage.value = '', 5000)
   }
 }
 
@@ -172,9 +199,9 @@ async function loadProducts() {
     if (cached) {
       products.value = JSON.parse(cached)
       cart.syncStock(products.value)
-      showToast('error', 'Mode offline: menggunakan data produk terakhir.')
+      showToast('error', t('cashier.offlineUsingCached'))
     } else {
-      showToast('error', error.response?.data?.message ?? 'Gagal memuat produk.')
+      showToast('error', error.response?.data?.message ?? t('cashier.loadProductsError'))
     }
   } finally {
     loadingProducts.value = false
@@ -194,10 +221,15 @@ function setPendingCheckouts(payloads) {
 }
 
 async function syncPendingCheckouts() {
-  if (!isOnline.value) return
+  if (!isOnline.value || syncingPendingCheckouts) return
 
   const queue = getPendingCheckouts()
   if (queue.length === 0) return
+
+  syncingPendingCheckouts = true
+  // Claim the queue up front so an overlapping call (another 'online' event, a second
+  // mount) sees it empty instead of re-posting the same offline transactions.
+  setPendingCheckouts([])
 
   const failed = []
   for (const payload of queue) {
@@ -208,11 +240,91 @@ async function syncPendingCheckouts() {
     }
   }
 
-  setPendingCheckouts(failed)
+  setPendingCheckouts([...failed, ...getPendingCheckouts()])
   if (failed.length === 0) {
-    showToast('success', 'Transaksi offline berhasil disinkronkan.')
+    showToast('success', t('cashier.offlineSynced'))
     await loadProducts()
   }
+  syncingPendingCheckouts = false
+}
+
+function searchCustomers(query) {
+  customerQuery.value = query
+  clearTimeout(customerSearchTimer)
+
+  if (!query.trim()) {
+    customerResults.value = []
+    return
+  }
+
+  customerSearchTimer = setTimeout(async () => {
+    searchingCustomer.value = true
+    try {
+      const response = await api.get('/v1/customers', { params: { search: query, per_page: 5 } })
+      customerResults.value = response.data.data ?? []
+    } catch {
+      customerResults.value = []
+    } finally {
+      searchingCustomer.value = false
+    }
+  }, 300)
+}
+
+function selectCustomer(customer) {
+  selectedCustomer.value = customer
+  customerName.value = customer.name
+  customerQuery.value = ''
+  customerResults.value = []
+  pointsToRedeem.value = 0
+}
+
+function clearSelectedCustomer() {
+  selectedCustomer.value = null
+  pointsToRedeem.value = 0
+}
+
+async function createAndSelectCustomer({ name, phone }) {
+  try {
+    const response = await api.post('/v1/customers', { name, phone })
+    selectCustomer(response.data)
+    showToast('success', t('cashier.customerCreated', { name: response.data.name }))
+  } catch (error) {
+    showToast('error', error.response?.data?.message ?? t('cashier.createCustomerError'))
+  }
+}
+
+async function handleHold() {
+  const result = await cart.holdCart()
+  if (result?.ok === false) {
+    showToast('error', result.message)
+    return
+  }
+  showToast('success', t('cashier.orderHeld'))
+}
+
+async function applyPromoCode() {
+  if (!promoCodeInput.value.trim()) return
+
+  promoError.value = ''
+  applyingPromo.value = true
+  try {
+    const response = await api.post('/v1/promo-codes/validate', {
+      code: promoCodeInput.value.trim(),
+      subtotal: subtotal.value,
+    })
+    appliedPromo.value = response.data
+  } catch (error) {
+    promoError.value = error.response?.data?.message ?? t('cashier.invalidPromo')
+    appliedPromo.value = null
+  } finally {
+    applyingPromo.value = false
+  }
+}
+
+function clearPromoCode() {
+  appliedPromo.value = null
+  promoCodeInput.value = ''
+  promoError.value = ''
 }
 
 function handleAddToCart(product) {
@@ -230,8 +342,10 @@ function handleIncrementItem(productId) {
 }
 
 async function checkout() {
+  if (loadingCheckout.value) return
+
   if (items.value.length === 0) {
-    showToast('error', 'Keranjang masih kosong.')
+    showToast('error', t('cashier.cartEmpty'))
     return
   }
 
@@ -247,21 +361,23 @@ async function checkout() {
       .filter((row) => row.amount > 0)
 
     if (validPayments.length === 0) {
-      showToast('error', 'Isi minimal satu pembayaran untuk split payment.')
+      showToast('error', t('cashier.fillAtLeastOnePayment'))
       loadingCheckout.value = false
       return
     }
 
     if (Number(totalPaid.value) <= 0) {
-      showToast('error', 'Total pembayaran harus lebih besar dari 0.')
+      showToast('error', t('cashier.totalMustBePositive'))
       loadingCheckout.value = false
       return
     }
   }
 
   const payload = {
-    user_id: Number(auth.user?.id),
     customer_name: String(customerName.value || '').trim() || null,
+    customer_id: selectedCustomer.value?.id ?? null,
+    redeem_points: selectedCustomer.value && Number(pointsToRedeem.value) > 0 ? Number(pointsToRedeem.value) : undefined,
+    promo_code: appliedPromo.value?.code,
     discount_percent: Number(discount.value),
     tax_percent: Number(tax.value),
     discount_type: 'percent',
@@ -289,19 +405,20 @@ async function checkout() {
     queue.push(payload)
     setPendingCheckouts(queue)
 
-    showToast('success', 'Mode offline: transaksi disimpan ke antrean.')
+    showToast('success', t('cashier.offlineQueued'))
     resetPosState()
     return
   }
 
   try {
     const response = await api.post('/checkout', payload)
-    showToast('success', `✅ Transaksi berhasil! Invoice: ${response.data.invoice_number}`)
+    const pointsNote = response.data.points_earned > 0 ? t('cashier.pointsEarnedSuffix', { points: response.data.points_earned }) : ''
+    showToast('success', t('cashier.checkoutSuccess', { invoice: response.data.invoice_number, pointsNote }))
     lastReceipt.value = response.data
     resetPosState()
     await loadProducts()
   } catch (error) {
-    showToast('error', error.response?.data?.message ?? 'Checkout gagal.')
+    showToast('error', error.response?.data?.message ?? t('cashier.checkoutError'))
   } finally {
     loadingCheckout.value = false
   }
@@ -310,6 +427,8 @@ async function checkout() {
 function resetPosState() {
   cart.clearCart()
   customerName.value = ''
+  clearSelectedCustomer()
+  clearPromoCode()
   discount.value = 0
   tax.value = configuredTaxPercent.value
   cashReceived.value = 0
@@ -330,16 +449,25 @@ function processBarcode(code) {
   if (!code) return
   const product = findProductBySku(code)
   if (!product) {
-    showToast('error', `Barcode tidak ditemukan: ${code}`)
+    showToast('error', t('cashier.barcodeNotFound', { code }))
     return
   }
   handleAddToCart(product)
 }
 
+function isTypingInField(event) {
+  const tag = event.target?.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable
+}
+
 function handleGlobalKeydown(event) {
   if (event.key === 'F2') { event.preventDefault(); focusProductSearch(); return }
   if (event.key === 'F4') { event.preventDefault(); if (!loadingCheckout.value) checkout(); return }
-  if (event.key === 'F8') { event.preventDefault(); cart.holdCart(); return }
+  if (event.key === 'F8') { event.preventDefault(); handleHold(); return }
+
+  // Barcode-scanner input and its Enter terminator only make sense outside form fields —
+  // typing in customer name / discount / payment amount shouldn't be hijacked as a scan.
+  if (isTypingInField(event)) return
 
   if (event.key === 'Enter' && barcodeBuffer.value.length >= 3) {
     event.preventDefault()
@@ -363,70 +491,7 @@ function updateOnlineStatus() {
 }
 
 function printReceipt() {
-  if (!lastReceipt.value) return
-
-  const storeName = storeInfo.value.store_name || 'POS MODERN'
-  const storeAddress = storeInfo.value.store_address || '-'
-  const storePhone = storeInfo.value.store_phone ? `<p>Telp: ${storeInfo.value.store_phone}</p>` : ''
-  const transactionCustomerName = String(lastReceipt.value.customer_name || '-')
-
-  const detailRows = (lastReceipt.value.details ?? [])
-    .map((item) => `<tr><td>${item.product_name_snapshot} <br><small>x${item.quantity}</small></td><td style="text-align:right;">Rp ${Number(item.subtotal).toLocaleString('id-ID')}</td></tr>`)
-    .join('')
-
-  const receivedAmountFromPayments = Array.isArray(lastReceipt.value.payments)
-    ? lastReceipt.value.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
-    : 0
-  const receivedAmount = receivedAmountFromPayments > 0
-    ? receivedAmountFromPayments
-    : Number(lastReceipt.value.cash_received ?? lastReceipt.value.amount_paid ?? 0)
-
-  const html = `
-    <html>
-      <head>
-        <title>Struk ${lastReceipt.value.invoice_number}</title>
-        <style>
-          @page { margin: 0; }
-          body { font-family: 'Courier New', Courier, monospace; width: 58mm; margin: 10px auto; color: #000; }
-          .text-center { text-align: center; }
-          h3 { margin: 0; font-size: 16px; }
-          p { margin: 4px 0; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          td { font-size: 12px; padding: 4px 0; vertical-align: top; }
-          .line { border-top: 1px dashed #000; margin: 10px 0; }
-          .bold { font-weight: bold; }
-        </style>
-      </head>
-      <body>
-        <div class="text-center">
-          <h3>${storeName}</h3>
-          <p>${storeAddress}</p>
-          ${storePhone}
-          <div class="line"></div>
-          <p>${new Date().toLocaleString('id-ID')}</p>
-          <p>Inv: ${lastReceipt.value.invoice_number}</p>
-          <p>Pembeli: ${transactionCustomerName}</p>
-        </div>
-        <div class="line"></div>
-        <table>${detailRows}</table>
-        <div class="line"></div>
-        <table>
-          <tr><td class="bold">Total Pembayaran</td><td style="text-align:right;" class="bold">Rp ${Number(lastReceipt.value.grand_total).toLocaleString('id-ID')}</td></tr>
-          <tr><td>Uang Diterima</td><td style="text-align:right;">Rp ${Number(receivedAmount).toLocaleString('id-ID')}</td></tr>
-          <tr><td>Kembali</td><td style="text-align:right;">Rp ${Number(lastReceipt.value.cash_change ?? 0).toLocaleString('id-ID')}</td></tr>
-        </table>
-        <div class="line"></div>
-        <p class="text-center">Terima Kasih<br>Silakan Berkunjung Kembali</p>
-      </body>
-    </html>
-  `
-
-  const popup = window.open('', '_blank', 'width=400,height=600')
-  if (!popup) return
-  popup.document.write(html)
-  popup.document.close()
-  popup.focus()
-  popup.print()
+  printReceiptDoc(lastReceipt.value)
 }
 
 onMounted(async () => {
@@ -451,35 +516,43 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full w-full flex-col overflow-hidden text-slate-800">
+  <div class="flex h-full w-full flex-col overflow-hidden text-ink">
 
     <!-- Main Content Area -->
     <main class="flex flex-1 overflow-hidden gap-4 lg:gap-6">
       <!-- Kiri: Katalog Produk (Scrollable) -->
-      <section class="flex-1 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)]">
+      <section class="flex-1 flex flex-col overflow-hidden rounded-2xl border border-line-soft bg-surface/95 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)]">
         <ProductCatalog ref="productCatalogRef" class="flex-1 overflow-y-auto" :products="products"
           :loading="loadingProducts" @refresh="loadProducts" @add="handleAddToCart" />
       </section>
 
       <!-- Kanan: Panel Keranjang (Fixed Layout) -->
       <aside
-        class="shrink-0 flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] lg:sticky lg:top-0 lg:h-[calc(100vh-3.2rem)] lg:max-h-[calc(100vh-3.2rem)] lg:w-[420px] xl:w-[460px]">
+        class="shrink-0 flex w-full flex-col overflow-hidden rounded-2xl border border-line-soft bg-surface/95 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] lg:sticky lg:top-0 lg:h-[calc(100vh-3.2rem)] lg:max-h-[calc(100vh-3.2rem)] lg:w-[420px] xl:w-[460px]">
         <CartPanel class="flex-1 overflow-y-auto" :items="items" :item-count="itemCount" :subtotal="subtotal"
           :grand-total="grandTotal" :cash-change="cashChange" :loading-checkout="loadingCheckout"
           :payment-method="paymentMethod" :customer-name="customerName"
           :enable-split-payment="enableSplitPayment" :payments="payments"
           :discount="discount" :tax="tax" :discount-amount="discountAmount" :tax-amount="taxAmount"
           :cash-received="cashReceived" :total-paid="totalPaid"
-          :remaining-due="remainingDue" @remove-item="cart.removeItem" @increment-item="handleIncrementItem"
-          @decrement-item="cart.decrementItem" @checkout="checkout" @hold="cart.holdCart()"
+          :remaining-due="remainingDue"
+          :selected-customer="selectedCustomer" :customer-query="customerQuery" :customer-results="customerResults"
+          :searching-customer="searchingCustomer" :points-to-redeem="pointsToRedeem" :points-discount-amount="pointsDiscountAmount"
+          :promo-code-input="promoCodeInput" :applied-promo="appliedPromo" :promo-error="promoError" :applying-promo="applyingPromo"
+          :promo-discount-amount="promoDiscountAmount"
+          @remove-item="cart.removeItem" @increment-item="handleIncrementItem"
+          @decrement-item="cart.decrementItem" @checkout="checkout" @hold="handleHold"
           @add-payment-row="addPaymentRow" @remove-payment-row="removePaymentRow" @update-payment-row="updatePaymentRow"
           @update:payment-method="paymentMethod = $event" @update:customer-name="customerName = $event"
           @update:enable-split-payment="enableSplitPayment = $event"
           @update:discount="setDiscountPercent($event)"
-          @update:cash-received="cashReceived = $event" />
+          @update:cash-received="cashReceived = $event"
+          @search-customer="searchCustomers" @select-customer="selectCustomer" @clear-customer="clearSelectedCustomer"
+          @create-customer="createAndSelectCustomer" @update:points-to-redeem="pointsToRedeem = $event"
+          @update:promo-code-input="promoCodeInput = $event" @apply-promo="applyPromoCode" @clear-promo="clearPromoCode" />
 
         <!-- Quick Action / Print Receipt Button Area -->
-        <div v-if="lastReceipt" class="border-t border-slate-200 bg-slate-50 p-4">
+        <div v-if="lastReceipt" class="border-t border-line-soft bg-surface-2 p-4">
           <button
             class="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-white transition-all hover:bg-slate-900 active:scale-[0.98]"
             @click="printReceipt">
@@ -488,7 +561,7 @@ onUnmounted(() => {
                 d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
               </path>
             </svg>
-            Cetak Struk: {{ lastReceipt.invoice_number }}
+            {{ t('cashier.printReceiptLabel', { invoice: lastReceipt.invoice_number }) }}
           </button>
         </div>
       </aside>

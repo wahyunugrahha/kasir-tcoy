@@ -1,15 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-
-function getAuthUser() {
-  const raw = localStorage.getItem('pos_auth_user')
-  if (!raw) return null
-
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return null
-  }
-}
+import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -18,13 +8,19 @@ const router = createRouter({
       path: '/',
       name: 'landing',
       component: () => import('../views/LandingView.vue'),
-      meta: { guestOnly: true, title: 'POS Professional' },
+      meta: { guestOnly: true, title: 'KasirTcuy' },
     },
     {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
       meta: { guestOnly: true, title: 'Login POS' },
+    },
+    {
+      path: '/dashboard',
+      name: 'dashboard',
+      component: () => import('../pages/DashboardPage.vue'),
+      meta: { title: 'Dashboard', requiresAuth: true, roles: ['admin'] },
     },
     {
       path: '/pos',
@@ -80,23 +76,28 @@ const router = createRouter({
       component: () => import('../pages/SettlementPage.vue'),
       meta: { title: 'Settlement', requiresAuth: true },
     },
+    {
+      path: '/promo-codes',
+      name: 'promo-codes',
+      component: () => import('../pages/PromoCodesPage.vue'),
+      meta: { title: 'Kode Promo', requiresAuth: true, roles: ['admin'] },
+    },
   ],
 })
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem('pos_auth_token')
-  const user = getAuthUser()
+  const auth = useAuthStore()
 
-  if (to.meta.requiresAuth && !token) {
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login' }
   }
 
-  if (to.meta.guestOnly && token) {
-    return { name: 'pos' }
+  if (to.meta.guestOnly && auth.isAuthenticated) {
+    return { name: auth.user?.role === 'admin' ? 'dashboard' : 'pos' }
   }
 
-  if (to.meta.roles?.length && user && !to.meta.roles.includes(user.role)) {
-    return { name: 'pos' }
+  if (to.meta.roles?.length && auth.user && !to.meta.roles.includes(auth.user.role)) {
+    return { name: auth.user.role === 'admin' ? 'dashboard' : 'pos' }
   }
 
   return true

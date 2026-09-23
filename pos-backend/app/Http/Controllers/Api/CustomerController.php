@@ -9,9 +9,16 @@ use Illuminate\Http\Request;
 
 class CustomerController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $customers = Customer::query()->latest()->paginate(15);
+        $query = Customer::query()->latest();
+
+        if ($request->filled('search')) {
+            $term = '%'.$request->string('search').'%';
+            $query->where(fn ($q) => $q->where('name', 'like', $term)->orWhere('phone', 'like', $term));
+        }
+
+        $customers = $query->paginate((int) $request->integer('per_page', 15));
 
         return response()->json($customers);
     }

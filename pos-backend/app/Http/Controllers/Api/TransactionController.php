@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreTransactionRequest;
 use App\Models\AuditLog;
+use App\Models\Customer;
 use App\Models\InventoryMovement;
 use App\Models\Product;
 use App\Models\Transaction;
@@ -62,7 +63,10 @@ class TransactionController extends Controller
         }
 
         if ($request->filled('payment_method')) {
-            $query->where('payment_method', $request->string('payment_method'));
+            $method = (string) $request->string('payment_method');
+            if (in_array($method, ['cash', 'qris', 'debit', 'credit_card', 'e_wallet', 'bank_transfer', 'mixed'], true)) {
+                $query->where('payment_method', $method);
+            }
         }
 
         if ($request->filled('is_voided')) {
@@ -94,9 +98,93 @@ class TransactionController extends Controller
         return response()->json($transaction);
     }
 
+    public function pay(Request $request, Transaction $transaction): JsonResponse
+    {
+        if ($transaction->is_voided) {
+            return response()->json(['message' => 'Transaksi ini sudah di-void.'], 422);
+        }
+
+        if (! in_array($transaction->payment_status, ['unpaid', 'partial'], true)) {
+            return response()->json(['message' => 'Transaksi ini sudah lunas.'], 422);
+        }
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'in:cash,qris,debit,credit_card,e_wallet,bank_transfer'],
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'reference_number' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $actorId = (int) $request->user()->id;
+        $ipAddress = $request->ip();
+        $userAgent = (string) $request->userAgent();
+
+        $updated = DB::transaction(function () use ($transaction, $validated, $actorId, $ipAddress, $userAgent) {
+            /** @var Transaction $locked */
+            $locked = Transaction::query()->whereKey($transaction->id)->lockForUpdate()->first();
+
+            $remainingDue = max(0, (float) $locked->grand_total - (float) $locked->amount_paid);
+            $tendered = (float) $validated['amount'];
+            $method = $validated['payment_method'];
+            $applied = min($tendered, $remainingDue);
+            $change = $method === 'cash' ? max(0, $tendered - $remainingDue) : 0;
+
+            $locked->payments()->create([
+                'payment_method' => $method,
+                'amount' => $applied,
+                'reference_number' => $validated['reference_number'] ?? null,
+            ]);
+
+            $newAmountPaid = (float) $locked->amount_paid + $applied;
+
+            $newPointsEarned = $locked->points_earned;
+            if ($locked->customer_id) {
+                $customer = Customer::query()->whereKey($locked->customer_id)->lockForUpdate()->first();
+                if ($customer) {
+                    // points_earned tracks the cumulative total for this sale, so we top it up to
+                    // match the new cumulative amount paid rather than re-earning on each installment.
+                    $cumulativePoints = intdiv((int) $newAmountPaid, TransactionService::POINTS_EARN_RATE);
+                    $delta = $cumulativePoints - $locked->points_earned;
+                    if ($delta > 0) {
+                        $customer->update(['points' => $customer->points + $delta]);
+                        $newPointsEarned = $cumulativePoints;
+                    }
+                }
+            }
+
+            $locked->update([
+                'amount_paid' => $newAmountPaid,
+                'cash_received' => $method === 'cash' ? (float) $locked->cash_received + $tendered : $locked->cash_received,
+                'cash_change' => $change,
+                'points_earned' => $newPointsEarned,
+                'payment_status' => $newAmountPaid >= (float) $locked->grand_total ? 'paid' : 'partial',
+            ]);
+
+            AuditLog::create([
+                'user_id' => $actorId,
+                'action' => 'transaction.paid_installment',
+                'entity_type' => 'transaction',
+                'entity_id' => $locked->id,
+                'old_values' => ['amount_paid' => $locked->getOriginal('amount_paid'), 'payment_status' => $locked->getOriginal('payment_status')],
+                'new_values' => ['amount_paid' => $newAmountPaid, 'payment_status' => $locked->payment_status, 'applied' => $applied],
+                'metadata' => ['invoice_number' => $locked->invoice_number, 'payment_method' => $method],
+                'ip_address' => $ipAddress,
+                'user_agent' => $userAgent,
+            ]);
+
+            return $locked;
+        });
+
+        return response()->json($updated->fresh([
+            'user:id,name,email',
+            'customer:id,name,phone',
+            'payments:id,transaction_id,payment_method,amount,reference_number',
+        ]));
+    }
+
     public function store(StoreTransactionRequest $request): JsonResponse
     {
         $validated = $request->validated();
+        $validated['user_id'] = $request->user()->id;
 
         $transaction = $this->transactionService->create(
             validated: $validated,
@@ -163,6 +251,15 @@ class TransactionController extends Controller
                 }
             }
 
+            if ($transaction->customer_id && ($transaction->points_earned > 0 || $transaction->points_redeemed > 0)) {
+                $customer = Customer::query()->whereKey($transaction->customer_id)->lockForUpdate()->first();
+                if ($customer) {
+                    $customer->update([
+                        'points' => max(0, $customer->points - $transaction->points_earned + $transaction->points_redeemed),
+                    ]);
+                }
+            }
+
             $oldValues = $transaction->only(['payment_status', 'amount_paid', 'cash_received', 'cash_change', 'is_voided', 'voided_at', 'voided_by', 'void_reason']);
 
             $transaction->update([
@@ -195,6 +292,8 @@ class TransactionController extends Controller
         ]);
     }
 
+    // ponytail: partial refunds don't reverse loyalty points (only full void does) —
+    // add proportional point reversal here if refund abuse for points shows up.
     public function refund(Request $request, Transaction $transaction): JsonResponse
     {
         if ($transaction->is_voided) {

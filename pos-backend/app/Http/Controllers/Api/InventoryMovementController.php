@@ -8,6 +8,7 @@ use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class InventoryMovementController extends Controller
 {
@@ -24,14 +25,14 @@ class InventoryMovementController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'product_id' => ['required', 'exists:products,id'],
-            'user_id' => ['required', 'exists:users,id'],
+            'product_id' => ['required', Rule::exists('products', 'id')->whereNull('deleted_at')],
             'type' => ['required', 'in:in,out,adjustment'],
             'quantity' => ['required', 'integer'],
             'reference_type' => ['nullable', 'string', 'max:100'],
             'reference_id' => ['nullable', 'integer'],
             'notes' => ['nullable', 'string'],
         ]);
+        $validated['user_id'] = $request->user()->id;
 
         $movement = DB::transaction(function () use ($validated) {
             $product = Product::query()->lockForUpdate()->findOrFail($validated['product_id']);

@@ -33,13 +33,8 @@ onUnmounted(() => {
 
   <div
     v-else
-    class="relative flex min-h-screen bg-gradient-to-br from-stone-100 via-zinc-50 to-stone-100 text-slate-800"
+    class="relative flex h-screen overflow-hidden bg-gradient-to-b from-white to-brand-50 text-ink dark:from-app dark:to-app"
   >
-    <div class="pointer-events-none absolute inset-0 opacity-70">
-      <div class="absolute -left-24 top-20 h-64 w-64 rounded-full bg-cyan-100/40 blur-3xl"></div>
-      <div class="absolute right-8 top-8 h-44 w-44 rounded-full bg-amber-100/40 blur-3xl"></div>
-    </div>
-
     <div
       role="button"
       tabindex="0"
@@ -75,9 +70,12 @@ onUnmounted(() => {
 </template>
 
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+/* Inter substitutes for the source system's proprietary SoDoSans (DESIGN.md, section 3).
+   JetBrains Mono substitutes for CoinbaseMono, used only for money/invoice figures. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
 
 body {
-  font-family: 'Plus Jakarta Sans', 'Segoe UI', Tahoma, sans-serif;
+  font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif;
+  letter-spacing: -0.01em;
 }
 </style>

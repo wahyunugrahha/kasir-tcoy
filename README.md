@@ -2,7 +2,7 @@
 
 Bahasa: Indonesia | [English](README.en.md)
 
-KasirTcuy adalah aplikasi Point of Sale (POS) berbasis monorepo yang menggabungkan backend API Laravel dan frontend Vue untuk kebutuhan operasional kasir, manajemen master data, settlement shift, billing, riwayat transaksi, serta pelaporan penjualan.
+KasirTcuy adalah aplikasi Point of Sale (POS) berbasis monorepo yang menggabungkan backend API Laravel dan frontend Vue untuk kebutuhan operasional kasir, manajemen master data, settlement shift, billing, riwayat transaksi, serta pelaporan penjualan. Sudah dilengkapi landing page publik, tema terang/gelap, dan UI dwibahasa (Indonesia/Inggris).
 
 Subjudul produk: POS System App.
 
@@ -28,58 +28,68 @@ Subjudul produk: POS System App.
 KasirTcuy memisahkan concern antara API dan client:
 
 - `pos-backend`: Laravel API untuk autentikasi, checkout, inventory movement, transaksi, shift, reporting, audit log, dan business rule.
-- `pos-frontend`: antarmuka POS/admin berbasis Vue 3 dengan alur kasir modern (split payment, hold order, riwayat, export Excel, dan lain-lain).
+- `pos-frontend`: landing page publik plus antarmuka POS/admin berbasis Vue 3 dengan alur kasir modern (split payment, hold order, kode promo, poin pelanggan, riwayat, export Excel, dan lain-lain).
 
 Pendekatan ini memudahkan scaling tim dan deployment karena frontend dan backend dapat dijalankan terpisah.
 
 ## Fitur Utama
 
-### 1) Autentikasi dan Otorisasi
+### 1) Landing Page, Tema, dan Bahasa
+
+- Landing page publik (`/`) yang menjelaskan produk (alur kerja, peran pengguna, fitur), terpisah dari shell aplikasi yang butuh login. Halaman `/login` juga publik.
+- Tema terang/gelap di seluruh halaman (composable `useTheme`), tombol toggle di header sidebar (halaman yang butuh login) atau header landing/login. Pilihan tersimpan di `localStorage`, default terang saat kunjungan pertama.
+- UI dwibahasa (Indonesia/Inggris) lewat `vue-i18n`, tombol toggle EN/ID di sebelah toggle tema. Pilihan tersimpan di `localStorage` (`pos_locale`), default Indonesia.
+- Desain mengikuti `DESIGN.md` di root repo (sistem desain terinspirasi Coinbase, diadaptasi untuk konteks kasir/POS).
+
+### 2) Autentikasi dan Otorisasi
 
 - Login token-based (Laravel Sanctum).
 - Session frontend di `localStorage`.
 - Pembatasan akses berbasis role (`admin`, `cashier`) di endpoint dan UI tertentu.
 
-### 2) Kasir / Checkout
+### 3) Kasir / Checkout
 
-- Katalog produk dengan pencarian dan filter kategori.
-- Low stock alert (stok menipis) pada katalog kasir untuk stok <= 5.
+- Katalog produk dengan pencarian, filter kategori, dan tampilan grid/list.
+- Low stock alert (stok menipis) pada Dashboard dan katalog kasir, berdasarkan titik reorder per produk.
 - Keranjang belanja dengan validasi stok real-time.
-- Metode pembayaran tunggal dan split payment.
-- Hitung subtotal, diskon persen, pajak persen, grand total, uang diterima, dan kembalian.
-- Hold order untuk menunda transaksi.
+- Metode pembayaran: `cash`, `qris`, `debit`, `credit_card`, `e_wallet`, `bank_transfer`, termasuk split payment lintas beberapa metode sekaligus.
+- Kode promo (syarat minimum belanja, batas penggunaan) dan penukaran poin loyalitas pelanggan.
+- Hitung subtotal, diskon persen, pajak persen, grand total, uang diterima, dan kembalian, dengan rekomendasi uang tunai yang mengikuti pecahan uang riil.
+- Hold order untuk menunda transaksi (tersimpan di server lewat Order List, bisa dipanggil ulang dari kasir mana pun).
+- Mode offline: transaksi yang gagal terkirim otomatis masuk antrean dan tersinkron begitu koneksi kembali normal.
 - Input nama pembeli pada flow checkout.
-- Cetak struk transaksi terakhir.
+- Cetak struk transaksi terakhir, dan cetak ulang struk transaksi lama dari halaman Riwayat.
 
-### 3) Transaksi dan Riwayat
+### 4) Transaksi dan Riwayat
 
 - Riwayat transaksi dengan filter status/metode/tanggal.
 - Detail transaksi (item, pembayaran, refund).
-- Void transaksi dengan guard approval sesuai role.
+- Void transaksi dengan guard approval PIN manager untuk role non-admin.
 - Refund parsial per item dengan alasan.
 
-### 4) Billing
+### 5) Billing
 
 - Halaman daftar tagihan transaksi unpaid/partial.
 - Menampilkan total pembayaran, uang diterima, dan kembalian.
 - Menampilkan nama pembeli per transaksi.
 
-### 5) Laporan dan Export
+### 6) Laporan dan Export
 
-- Ringkasan penjualan dan analytics.
+- Ringkasan penjualan dan analytics, penjualan harian, produk terlaris, performa kasir, profit per kategori, valuasi stok, dan laporan void/refund.
 - Export riwayat ke Excel native (`.xlsx`) multi-sheet:
   - Sheet Ringkasan
   - Sheet Detail
 - Header row freeze saat scroll di Excel.
 - Kolom nominal otomatis format Rupiah pada sheet export.
 
-### 6) Master Data dan Operasional
+### 7) Master Data dan Operasional
 
-- Manajemen kategori, produk, customer, user.
+- Manajemen kategori, produk, customer, user, dengan tampilan grid/list.
 - Halaman manajemen produk dibatasi khusus role admin.
+- Produk yang dihapus di-soft-delete (bukan hilang permanen), agar riwayat transaksi lama tetap valid; produk yang sudah dihapus tidak bisa dipakai checkout atau pergerakan stok baru.
 - Inventory movement tercatat untuk mutasi stok.
-- Shift opening/closing dan settlement berbasis akun login (non-admin hanya bisa mengakses shift miliknya).
-- Approval manager flow untuk aksi tertentu.
+- Shift opening/closing, pencatatan kas masuk/keluar selama shift, dan settlement berbasis akun login (non-admin hanya bisa mengakses shift miliknya).
+- Approval manager (verifikasi PIN) untuk aksi sensitif seperti void dan refund.
 - Manager dapat mengganti PIN sendiri dari halaman Pengaturan.
 
 ## Tech Stack
@@ -97,6 +107,7 @@ Pendekatan ini memudahkan scaling tim dan deployment karena frontend dan backend
 - Vue 3
 - Pinia
 - Vue Router
+- vue-i18n (Indonesia/Inggris)
 - Axios
 - Tailwind CSS v4
 - Chart.js + vue-chartjs
@@ -120,6 +131,9 @@ Lokasi penting:
 - `pos-frontend/src/router/index.js`: route page frontend.
 - `pos-frontend/src/pages`: halaman utama (Kasir, Riwayat, Bills, Settlement, dll).
 - `pos-frontend/src/services/api.js`: konfigurasi axios + bearer token.
+- `pos-frontend/src/i18n/`: setup vue-i18n dan kamus terjemahan Indonesia/Inggris.
+- `pos-frontend/src/composables/useTheme.js`: toggle tema terang/gelap, tersimpan di `localStorage`.
+- `DESIGN.md` (root repo): dokumentasi sistem desain aplikasi.
 
 ## Arsitektur Singkat
 
@@ -249,14 +263,21 @@ Seeder juga menyiapkan kategori, produk, customer, stok awal, dan sample transak
 - `categories`
 - `products`
 - `customers`
-- `transactions`
+- `transactions` (plus aksi `pay`, `void`, `refund`)
 - `inventory-movements`
-- `shifts`
+- `held-orders`
+- `promo-codes` (plus `promo-codes/validate`)
+- `shifts` (plus `cash-movements`, `close`)
+- `managers` (plus `managers/verify-pin`)
 - `reports/summary`
 - `reports/sales-by-date`
 - `reports/top-products`
+- `reports/cashier-performance`
+- `reports/profit-by-category`
+- `reports/stock-valuation`
+- `reports/void-refunds`
+- `reports/low-stock`
 - `audit-logs`
-- manager approval endpoints
 
 Catatan: sebagian endpoint dibatasi middleware role `admin`.
 
@@ -317,6 +338,7 @@ Catatan: sebagian endpoint dibatasi middleware role `admin`.
 - Peningkatan test coverage end-to-end checkout/refund/void.
 - Integrasi printer thermal yang lebih kaya opsi.
 - Hardening observability dan audit trail.
+- Menuntaskan cakupan terjemahan Indonesia/Inggris di seluruh halaman yang butuh login (saat ini sudah lengkap di landing page, login, dan navigasi sidebar).
 
 ## Lisensi
 

@@ -30,6 +30,7 @@ class ProductController extends Controller
             'cost_price' => ['required', 'numeric', 'min:0'],
             'selling_price' => ['required', 'numeric', 'min:0'],
             'stock' => ['nullable', 'integer', 'min:0'],
+            'min_stock' => ['nullable', 'integer', 'min:0'],
             'description' => ['nullable', 'string'],
             'image' => ['nullable', 'image', 'max:2048'],
         ]);
@@ -47,6 +48,7 @@ class ProductController extends Controller
             'cost_price' => $validated['cost_price'],
             'selling_price' => $validated['selling_price'],
             'stock' => $validated['stock'] ?? 0,
+            'min_stock' => $validated['min_stock'] ?? 5,
             'description' => $validated['description'] ?? null,
             'image_url' => $imageUrl,
         ]);
@@ -68,6 +70,7 @@ class ProductController extends Controller
             'cost_price' => ['required', 'numeric', 'min:0'],
             'selling_price' => ['required', 'numeric', 'min:0'],
             'stock' => ['required', 'integer', 'min:0'],
+            'min_stock' => ['nullable', 'integer', 'min:0'],
             'description' => ['nullable', 'string'],
             'image' => ['nullable', 'image', 'max:2048'],
         ]);
@@ -84,7 +87,7 @@ class ProductController extends Controller
         }
 
         unset($validated['image']);
-        $oldValues = $product->only(['category_id', 'sku', 'name', 'cost_price', 'selling_price', 'stock', 'image_url', 'description']);
+        $oldValues = $product->only(['category_id', 'sku', 'name', 'cost_price', 'selling_price', 'stock', 'min_stock', 'image_url', 'description']);
         $product->update($validated);
 
         $this->writeAuditLog(
@@ -93,7 +96,7 @@ class ProductController extends Controller
             'product',
             $product->id,
             $oldValues,
-            $product->only(['category_id', 'sku', 'name', 'cost_price', 'selling_price', 'stock', 'image_url', 'description'])
+            $product->only(['category_id', 'sku', 'name', 'cost_price', 'selling_price', 'stock', 'min_stock', 'image_url', 'description'])
         );
 
         return response()->json($product->load('category:id,name'));
@@ -102,7 +105,7 @@ class ProductController extends Controller
     public function destroy(Product $product): JsonResponse
     {
         $productId = $product->id;
-        $oldValues = $product->only(['category_id', 'sku', 'name', 'cost_price', 'selling_price', 'stock', 'image_url', 'description']);
+        $oldValues = $product->only(['category_id', 'sku', 'name', 'cost_price', 'selling_price', 'stock', 'min_stock', 'image_url', 'description']);
 
         if ($product->image_url) {
             $oldPath = str_replace('/storage/', '', $product->image_url);

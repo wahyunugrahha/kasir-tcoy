@@ -89,6 +89,10 @@ class UserController extends Controller
             'manager_pin' => ['nullable', 'string', 'min:4', 'max:20', 'regex:/^[0-9]+$/'],
         ]);
 
+        if ($user->role === 'admin' && $validated['role'] !== 'admin' && $this->isLastAdmin($user)) {
+            return response()->json(['message' => 'Tidak bisa mengubah role admin terakhir.'], 422);
+        }
+
         if (empty($validated['password'])) {
             unset($validated['password']);
         }
@@ -106,10 +110,23 @@ class UserController extends Controller
         return response()->json($user);
     }
 
-    public function destroy(User $user): JsonResponse
+    public function destroy(Request $request, User $user): JsonResponse
     {
+        if ($request->user()->id === $user->id) {
+            return response()->json(['message' => 'Tidak bisa menghapus akun sendiri.'], 422);
+        }
+
+        if ($user->role === 'admin' && $this->isLastAdmin($user)) {
+            return response()->json(['message' => 'Tidak bisa menghapus admin terakhir.'], 422);
+        }
+
         $user->delete();
 
         return response()->json(['message' => 'User deleted']);
+    }
+
+    private function isLastAdmin(User $user): bool
+    {
+        return User::query()->where('role', 'admin')->where('id', '!=', $user->id)->doesntExist();
     }
 }

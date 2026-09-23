@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @property int $id
@@ -14,6 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $cost_price
  * @property string $selling_price
  * @property int $stock
+ * @property int $min_stock
  * @property string|null $image_url
  * @property string|null $description
  * @property \Illuminate\Support\Carbon $created_at
@@ -21,6 +23,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Product extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'category_id',
         'sku',
@@ -28,6 +32,7 @@ class Product extends Model
         'cost_price',
         'selling_price',
         'stock',
+        'min_stock',
         'image_url',
         'description',
     ];

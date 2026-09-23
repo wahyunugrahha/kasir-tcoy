@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreTransactionRequest extends FormRequest
 {
@@ -17,9 +18,10 @@ class StoreTransactionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => ['required', 'exists:users,id'],
             'customer_name' => ['nullable', 'string', 'max:100'],
             'customer_id' => ['nullable', 'exists:customers,id'],
+            'redeem_points' => ['nullable', 'integer', 'min:0'],
+            'promo_code' => ['nullable', 'string', 'max:50'],
             'discount' => ['nullable', 'numeric', 'min:0'],
             'discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'discount_type' => ['nullable', 'in:fixed,percent'],
@@ -38,7 +40,7 @@ class StoreTransactionRequest extends FormRequest
             'manager_user_id' => ['nullable', 'exists:users,id'],
             'manager_pin' => ['nullable', 'string', 'min:4', 'max:20'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'exists:products,id'],
+            'items.*.product_id' => ['required', Rule::exists('products', 'id')->whereNull('deleted_at')],
             'items.*.variant_id' => ['nullable', 'exists:product_variants,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.discount_type' => ['nullable', 'in:fixed,percent'],
